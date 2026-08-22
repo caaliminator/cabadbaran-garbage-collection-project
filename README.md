@@ -17,7 +17,6 @@ application. Four role-based portals share one app shell, plus a public page:
 pip install -r requirements.txt
 python seed.py --demo                    # barangays, vehicles, schedule, accounts
 python tools/make_demo_geo.py            # illustrative map geography (see note)
-python tools/set_demo_passwords.py       # one known password for the demo logins
 python tools/make_demo_day.py --days 5   # a working week of activity
 python app.py
 ```
@@ -63,14 +62,21 @@ labelled approximations so the maps work while you collect the real thing;
 `python tools/geo_from_csv.py` imports the real thing when you have it. See
 [docs/DATA_REQUIREMENTS.md](docs/DATA_REQUIREMENTS.md).
 
-`seed.py` prints the City Hall Admin password **once** — it is stored only as a
-`werkzeug` hash and cannot be recovered afterwards. Set `SEED_ADMIN_PASSWORD`
-first to choose your own. Re-running the script is safe: it never duplicates a
-record and never overwrites an edit made through the UI.
+`seed.py` gives every account it creates the same known password, so a fresh
+local store and a fresh deploy have **identical logins** — see `seed_password()`
+in `seed.py`, and `docs/CREDENTIALS.md` for the table. Set
+`SEED_ADMIN_PASSWORD` or `SEED_DEMO_PASSWORD` to override it per environment.
+Re-running the script is safe: it never duplicates a record and never
+overwrites an edit made through the UI.
+
+Nobody is forced to change their password — seeded accounts are created with
+`must_change_password: False`, and the Profile page offers a change to anyone
+who wants one. (An admin-initiated reset in User Management does prompt that
+user at their next login.)
 
 Every other account is created by the City Hall Admin in User Management. To
 walk through the barangay and collector portals before that page exists, run
-`python seed.py --demo` for one generated account per role.
+`python seed.py --demo` for one account per role.
 
 There is a single `/login` for all roles; the account's role decides where it
 lands. Public viewer pages need no account.
@@ -255,15 +261,17 @@ Additions for the collector screens:
 
 ## Notes
 
-- The **live map** is a schematic inline SVG, not a real map — the brief allowed
-  no external JavaScript, and a map SDK would require one. The surrounding card,
-  filters, and legend are production-shaped, so dropping in Leaflet or Mapbox
-  later means replacing only the `<svg>` inside the `live_map()` macro.
-- **Photo proof is accepted but not stored.** The not-collected form takes a
-  JPG/PNG and previews it client-side; persisting it needs a file store and an
-  upload handler, which a database-less build cannot provide.
+- The **live map** is Leaflet with OpenStreetMap tiles, loaded from a CDN in
+  `templates/partials/map_assets.html`. Both are free and need no API key — but
+  they are a runtime dependency on `unpkg.com`, so the map needs internet.
+- **Photo proof is stored**, deliberately outside `static/`, and served by the
+  permission-checked `/collector/proofs/<path>` route so that only an admin or
+  the owning collector can open one.
 - The **donut chart** is a pure CSS `conic-gradient` — no charting library.
-- Data resets on restart because the store is in memory. Add a database before
-  deploying.
-- `SECRET_KEY` falls back to a development value; set it in the environment for
-  production, and replace the plaintext demo passwords with hashed credentials.
+- The store is **JSON files on disk** — not a database, and not in memory.
+  Reads scan the file; writes take an OS file lock. Comfortable at city scale;
+  `docs/DEPLOYMENT.md` covers when to move to SQLite.
+- Passwords exist **only as `werkzeug` hashes**. There is no plaintext password
+  anywhere in the tree, the JSON store included.
+- `SECRET_KEY` is **required** in production — the app refuses to start without
+  it rather than generate a new one per restart. See `config.py`.

@@ -16,14 +16,15 @@ What it creates:
   * placeholder geo files, pre-filled with all 31 barangay ids so that
     supplying the real data is a fill-in-the-blanks job
 
-The admin password is never hardcoded. Set SEED_ADMIN_PASSWORD to choose one;
-otherwise a strong password is generated and printed once, here, and nowhere
-else -- it is stored only as a werkzeug hash.
+Seeded accounts share one known password so that a fresh local store and a
+fresh deploy produce identical logins -- see seed_password(). Override it per
+deployment with SEED_ADMIN_PASSWORD / SEED_DEMO_PASSWORD. Stored only as a
+werkzeug hash, and nobody is forced to change it: the Profile page offers a
+password change, it is never demanded.
 """
 
 import json
 import os
-import secrets
 import sys
 from pathlib import Path
 
@@ -33,6 +34,28 @@ from config import Config
 from services import geo_service, storage, timeutil
 
 SEED_ACTOR = "seed"
+
+# ---------------------------------------------------------------------------
+# The seed password: one definition, used by every seeding path
+# ---------------------------------------------------------------------------
+#
+# seed.py, tools/make_demo_day.py and tools/set_demo_passwords.py all read the
+# password from here, so a fresh local store and a fresh deploy end up with the
+# same logins. It is deliberately a fixed default rather than a generated one:
+# a generated password changes on every restart of an ephemeral host, which
+# locked you out of your own demo and made the local and deployed credentials
+# disagree.
+#
+# The cost is that this default is readable by anyone who can read the repo.
+# For anything beyond a demo, set SEED_ADMIN_PASSWORD and SEED_DEMO_PASSWORD in
+# the host's environment -- they take priority over this and are never echoed
+# to the build log.
+DEFAULT_SEED_PASSWORD = "Cabadbaran2026"
+
+
+def seed_password() -> str:
+    """The password every seeded account gets, env var first."""
+    return os.environ.get("SEED_DEMO_PASSWORD") or DEFAULT_SEED_PASSWORD
 
 # ---------------------------------------------------------------------------
 # The 31 barangays of Cabadbaran City, in the canonical order that assigns
@@ -144,7 +167,7 @@ def seed_admin() -> tuple[dict | None, str | None]:
     if storage.find_one("users", username=username):
         return None, None
 
-    password = os.environ.get("SEED_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+    password = os.environ.get("SEED_ADMIN_PASSWORD") or seed_password()
     user = storage.insert("users", {
         "full_name": os.environ.get("SEED_ADMIN_NAME", "City Hall Administrator"),
         "username": username,
@@ -155,7 +178,9 @@ def seed_admin() -> tuple[dict | None, str | None]:
         "assigned_vehicle": None,
         "contact_number": "",
         "status": "Active",
-        "must_change_password": True,
+        # Not forced. The Profile page offers a password change to anyone who
+        # wants one; seeding does not demand it.
+        "must_change_password": False,
     }, SEED_ACTOR)
     return user, password
 
@@ -255,21 +280,14 @@ def seed_demo_accounts() -> list[tuple[str, str]]:
     One account per non-admin role, for walking through the app before User
     Management exists (Phase 2). Opt-in via `python seed.py --demo`.
 
-    Passwords come from SEED_DEMO_PASSWORD when it is set, and are generated
-    per account otherwise. Setting it matters on a host with an ephemeral
-    filesystem: the data is rebuilt on every restart, and generated passwords
-    would change with it, locking you out of your own demo. A fixed one means
-    the same logins work no matter how often the instance resets.
-
-    Nothing is hardcoded and nothing is stored unhashed either way.
+    Every account gets seed_password(), so these logins are the same locally
+    and on a host whose filesystem is rebuilt on each restart.
     """
-    shared = os.environ.get("SEED_DEMO_PASSWORD")
-
     made = []
     for spec in DEMO_ACCOUNTS:
         if storage.find_one("users", username=spec["username"]):
             continue
-        password = shared or secrets.token_urlsafe(9)
+        password = seed_password()
         storage.insert("users", {
             "full_name": spec["full_name"],
             "username": spec["username"],
@@ -370,7 +388,6 @@ def run(demo: bool = False) -> int:
             print("    password: (taken from SEED_ADMIN_PASSWORD)")
         else:
             print(f"    password: {password}")
-            print("    ^ shown once, stored only as a hash. Save it now.")
     else:
         print("\n  City Hall Admin account already present, left untouched")
 
@@ -383,7 +400,7 @@ def run(demo: bool = False) -> int:
             for username, _ in made:
                 print(f"    {username}")
         elif made:
-            print("\n  Demo accounts created (shown once):")
+            print("\n  Demo accounts created:")
             for username, password in made:
                 print(f"    {username:<16} {password}")
         else:

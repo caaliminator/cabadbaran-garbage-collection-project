@@ -57,10 +57,14 @@ services:
       - key: PYTHON_VERSION
         value: "3.13.4"
 
-      # Set both of these in the Render dashboard before the first deploy.
-      # They are what make the demo logins survive a restart -- without them
-      # seed.py generates new passwords each time the instance resets, and you
-      # would be locked out of your own demo.
+      # OPTIONAL. Leave both blank and every seeded account uses
+      # DEFAULT_SEED_PASSWORD from seed.py, which is what a local `python
+      # seed.py --demo` uses too -- so the credentials are identical in both
+      # places and survive every restart of this ephemeral filesystem.
+      #
+      # Set them to override that per deployment. Worth doing if the URL is
+      # public, since the default is readable in the repo. SEED_ADMIN_PASSWORD
+      # covers city_admin only; SEED_DEMO_PASSWORD covers every other account.
       - key: SEED_ADMIN_PASSWORD
         sync: false
       - key: SEED_DEMO_PASSWORD

@@ -15,9 +15,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from werkzeug.security import generate_password_hash
+from seed import seed_password
 from services import storage
 
-DEMO_PASSWORD = "Cabadbaran2026"
+# Same password seed.py and make_demo_day.py use, so running this can only
+# restore the documented credentials -- never invent a third set.
+DEMO_PASSWORD = seed_password()
+
+# The accounts seed.py creates. Accounts created by make_demo_day.py are found
+# via their `demo_generated` flag, so this covers the whole demo cast without
+# ever touching a real account made through User Management.
 ACCOUNTS = ["city_admin", "brgy_admin", "tri_collector", "truck_collector"]
 
 
@@ -28,8 +35,13 @@ def main() -> int:
         return 1
 
     storage.bootstrap()
+
+    targets = list(ACCOUNTS) + sorted(
+        u["username"] for u in storage.find("users")
+        if u.get("demo_generated") and u["username"] not in ACCOUNTS)
+
     changed, missing = [], []
-    for username in ACCOUNTS:
+    for username in targets:
         user = storage.find_one("users", username=username)
         if not user:
             missing.append(username)

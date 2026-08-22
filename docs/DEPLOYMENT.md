@@ -7,8 +7,8 @@ plan            free
 start command   python seed.py --demo && gunicorn app:app                   --worker-class gthread --workers 1 --threads 8                   --bind 0.0.0.0:$PORT
 env vars        FLASK_ENV=production
                 SECRET_KEY=<generate one>
-                SEED_ADMIN_PASSWORD=<your choice>
-                SEED_DEMO_PASSWORD=<your choice>
+                SEED_ADMIN_PASSWORD=<optional override>
+                SEED_DEMO_PASSWORD=<optional override>
                 PYTHON_VERSION=3.13.4
 ```
 
@@ -30,22 +30,33 @@ rebuilds the whole thing: 31 barangays, 39 vehicles, the weekly schedule, four
 working accounts, eight properties, and the collector assignments. So the app
 is never empty, and it never looks broken.
 
-The one thing that would break it is the logins changing. That is what
-`SEED_ADMIN_PASSWORD` and `SEED_DEMO_PASSWORD` are for: with them set, the same
-four accounts work no matter how many times the instance resets. Without them
-`seed.py` generates fresh passwords on each boot and you are locked out of your
-own demo.
+The logins do not change. Every seeded account gets its password from
+`seed_password()` in `seed.py`, which returns `SEED_DEMO_PASSWORD` when that is
+set and `DEFAULT_SEED_PASSWORD` otherwise. Because the fallback is a fixed
+value rather than a generated one, a fresh local store and a fresh deploy
+produce **identical credentials**, and they survive every restart.
 
-**Set both before your first deploy.**
+Nobody is forced to change their password either. Seeded accounts are created
+with `must_change_password: False`; the Profile page offers a password change to
+anyone who wants one. (An admin-initiated reset in User Management still
+prompts that user at their next login — that is a different flow.)
 
 ### The accounts you get
 
-| Username | Role | Password |
-|---|---|---|
-| `city_admin` | City Hall Admin | your `SEED_ADMIN_PASSWORD` |
-| `brgy_admin` | Barangay Admin (Poblacion 1) | your `SEED_DEMO_PASSWORD` |
-| `tri_collector` | Tricycle Collector | your `SEED_DEMO_PASSWORD` |
-| `truck_collector` | Truck Collector | your `SEED_DEMO_PASSWORD` |
+All of them share one password: `SEED_DEMO_PASSWORD` if you set it, otherwise
+`DEFAULT_SEED_PASSWORD` from [`seed.py`](../seed.py).
+
+| Username | Role |
+|---|---|
+| `city_admin` | City Hall Admin (or `SEED_ADMIN_PASSWORD`, if set) |
+| `brgy_admin` | Barangay Admin (Poblacion 1) |
+| `tri_collector` | Tricycle Collector |
+| `truck_collector` | Truck Collector |
+| `brgy01_admin`–`brgy10_admin` | Barangay Admins (from `make_demo_day.py`) |
+| `tri01`–`tri10`, `trk01`–`trk04` | Collectors (from `make_demo_day.py`) |
+
+**Set the two env vars if the URL is public**, since the default password is
+readable by anyone who can read the repo.
 
 ---
 
@@ -153,8 +164,8 @@ Add these **environment variables**:
 | `SECRET_KEY` | *generate a long random value* | See below |
 | `PYTHON_VERSION` | `3.13.4` | |
 | `SEED_ADMIN_USERNAME` | `city_admin` | |
-| `SEED_ADMIN_PASSWORD` | *your choice* | Otherwise generated fresh on each boot |
-| `SEED_DEMO_PASSWORD` | *your choice* | Same, for the three demo accounts |
+| `SEED_ADMIN_PASSWORD` | *optional* | Overrides the default for `city_admin` |
+| `SEED_DEMO_PASSWORD` | *optional* | Overrides it for every other seeded account |
 
 ### About `SECRET_KEY`
 
@@ -234,8 +245,7 @@ Whatever you choose, test restoring it once before you rely on it.
 - [ ] The live dot in the top bar goes green, confirming Socket.IO connected
 - [ ] Sign in as all four accounts with the passwords you set
 - [ ] Deploy once more and sign in again — on the free plan the data resets,
-      but the four logins must still work. If they do not,
-      `SEED_DEMO_PASSWORD` is not set.
+      but the same logins must still work, and must match what you use locally.
 - [ ] On a phone, go On Duty as a collector and confirm the marker appears
 
 That last one is the important one. Your data disappearing after a deploy is

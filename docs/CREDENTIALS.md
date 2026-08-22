@@ -49,11 +49,17 @@ Passwords are stored only as `werkzeug` hashes — never in plaintext, not even
 inside the JSON files. This script writes a new hash; it cannot read an
 existing one back.
 
-**On a real deployment, do not use these.** `seed.py` generates a strong
-password for the first admin and prints it once; every other account is then
-created by the City Hall Admin in User Management, and each user changes their
-own password from their Profile page. The script above exists so a capstone
-demo has logins you can hand to a panel.
+Every seeding path — `seed.py`, `tools/make_demo_day.py` and the script above —
+reads the password from `seed_password()` in `seed.py`, so they cannot disagree
+about what it is. That is what makes the local and deployed credentials
+identical.
+
+**If the deployment URL is public, override it.** The default is readable by
+anyone who can read this repo. Set `SEED_ADMIN_PASSWORD` (covers `city_admin`)
+and `SEED_DEMO_PASSWORD` (covers every other seeded account) in the host's
+environment; both take priority over the default and are never echoed to the
+build log. For real use, accounts are created by the City Hall Admin in User
+Management and each user sets their own password from Profile.
 
 ---
 
@@ -65,11 +71,13 @@ login flow — so it puts the four accounts on a test password. It now records
 what it found and restores it on exit, including when a check fails early. A
 test run and your demo logins no longer interfere.
 
-**A deploy that resets the filesystem needs the passwords pinned.** On a free
-host with no persistent disk, `seed.py` runs again on every boot and would
-generate *new* passwords each time, locking you out of your own demo. Set
-`SEED_ADMIN_PASSWORD` and `SEED_DEMO_PASSWORD` in the host's environment before
-the first deploy. See [DEPLOYMENT.md](DEPLOYMENT.md).
+**A deploy that resets the filesystem no longer changes the logins.** `seed.py`
+used to generate a fresh password on every boot, which locked you out of your
+own demo on a host with no persistent disk — and worse, `make_demo_day.py`
+fell back to a *different*, hardcoded one, so a single deploy ended up with two
+different passwords across its accounts. Both now read the one definition, so
+the credentials survive every restart and match your local store. Pinning the
+env vars is optional. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 

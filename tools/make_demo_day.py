@@ -32,13 +32,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from werkzeug.security import generate_password_hash
 
 from config import Config
+from seed import seed_password
 from services import schedule_service, storage, timeutil
 
 ACTOR = "tools/make_demo_day"
 
-# Matches seed.py: on a host whose filesystem resets, the password has to
-# come from the environment, or every restart would issue a different one.
-DEMO_PASSWORD = os.environ.get("SEED_DEMO_PASSWORD") or "Cabadbaran2026"
+# Defined once, in seed.py, so this generator, seed.py and
+# tools/set_demo_passwords.py can never disagree about what the password is.
+# They used to: seed.py generated a random one while this fell back to a
+# hardcoded literal, which left a deploy with two different passwords across
+# its accounts.
+DEMO_PASSWORD = seed_password()
 
 # Barangays that get a full cast of properties and collectors. Ten is enough to
 # make every citywide figure look like a city rather than a test fixture, and
