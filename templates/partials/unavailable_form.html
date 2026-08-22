@@ -1,0 +1,147 @@
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status, empty %}
+
+{# ===========================================================================
+   "Unavailable for Duty" request. Shared by both collector portals.
+   Expects: profile, reasons, requests, kind
+   =========================================================================== #}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Unavailable for Duty</h1>
+    <p class="page__sub">
+      Tell the office ahead of time so your route can be reassigned.
+    </p>
+  </div>
+</div>
+
+<section class="split">
+
+  {# ---- Who is requesting ---------------------------------------------- #}
+  <div class="stack">
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">Your Assignment</h2></div>
+      <div class="card__body">
+        <dl class="info-list">
+          <div class="info-list__row">
+            <dt class="info-list__key">Collector name</dt>
+            <dd class="info-list__val">{{ profile.name }}</dd>
+          </div>
+          <div class="info-list__row">
+            <dt class="info-list__key">Role</dt>
+            <dd class="info-list__val">{{ profile.role_label }}</dd>
+          </div>
+
+          {% if kind == 'tricycle' %}
+            <div class="info-list__row">
+              <dt class="info-list__key">Assigned barangay</dt>
+              <dd class="info-list__val">{{ profile.barangay }}</dd>
+            </div>
+            <div class="info-list__row">
+              <dt class="info-list__key">Assigned purok</dt>
+              <dd class="info-list__val">{{ profile.purok }}</dd>
+            </div>
+            <div class="info-list__row">
+              <dt class="info-list__key">Assigned tricycle</dt>
+              <dd class="info-list__val mono">{{ profile.vehicle }}</dd>
+            </div>
+          {% else %}
+            <div class="info-list__row">
+              <dt class="info-list__key">Assigned barangays</dt>
+              <dd class="info-list__val">
+                {% for b in profile.barangays %}<span>{{ b }}</span>{% endfor %}
+              </dd>
+            </div>
+            <div class="info-list__row">
+              <dt class="info-list__key">Assigned truck</dt>
+              <dd class="info-list__val mono">{{ profile.vehicle }}</dd>
+            </div>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+    {# ---- Previous requests -------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        <h2 class="card__title">My Requests</h2>
+        <span class="badge">{{ requests|length }}</span>
+      </div>
+      <div class="card__body card__body--flush">
+        {% for r in requests %}
+          <div class="entry">
+            <div>
+              <p class="entry__title">{{ r.reason }}</p>
+              <p class="entry__sub">
+                {{ r.affected_display }}
+                {%- if r.unavailable_until %} → {{ r.until_display }}{% endif %}
+              </p>
+              {% if r.notes %}<p class="entry__sub">{{ r.notes }}</p>{% endif %}
+            </div>
+            <div class="entry__meta">
+              {% if r.covers_today %}
+                <span class="badge badge--danger"><span class="dot"></span>Unavailable today</span>
+              {% elif r.expired %}
+                <span class="badge badge--muted"><span class="dot"></span>Past</span>
+              {% else %}
+                {{ status(r.status) }}
+              {% endif %}
+              <span>{{ r.created_at|datetime_display }}</span>
+            </div>
+          </div>
+        {% else %}
+          {{ empty('No requests yet', 'Submitted unavailability requests appear here with their approval status.', 'file') }}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ---- Request form ---------------------------------------------------- #}
+  <div class="card">
+    <div class="card__head"><h2 class="card__title">Submit Unavailable Request</h2></div>
+
+    <form class="card__body form" method="post" data-validate novalidate>
+      {{ csrf_field() }}
+      <div class="form__grid form__grid--2">
+        <div class="field">
+          <label class="field__label" for="affected_date">
+            Affected Date<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <input class="field__input" type="date" id="affected_date" name="affected_date"
+                 required min="{{ today }}">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="unavailable_until">Unavailable Until <span class="muted">(optional)</span></label>
+          <input class="field__input" type="date" id="unavailable_until" name="unavailable_until"
+                 aria-describedby="until-hint">
+          <p class="field__hint" id="until-hint">Leave blank if it is a single day.</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="reason">
+          Reason<span class="field__req" aria-hidden="true">*</span>
+          <span class="sr-only">(required)</span>
+        </label>
+        <select class="field__select" id="reason" name="reason" required>
+          <option value="">Select reason…</option>
+          {% for r in reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="notes">Notes / Explanation <span class="muted">(optional)</span></label>
+        <textarea class="field__textarea" id="notes" name="notes" maxlength="500"
+                  placeholder="Anything the office should know…"></textarea>
+      </div>
+
+      <div class="row row--end">
+        <button type="submit" class="btn btn--primary">
+          {{ icon('check', 'icon--sm') }} Submit Request
+        </button>
+      </div>
+    </form>
+  </div>
+</section>

@@ -1,0 +1,41 @@
+{% from 'partials/icons.html' import icon %}
+
+{# ===========================================================================
+   On Duty / Off Duty.
+
+   Going on duty starts the browser sharing GPS and puts this collector on
+   every live map; going off duty stops it and removes the marker. The button
+   is a real form post, so it works before any JavaScript loads -- the GPS
+   watcher is progressive enhancement on top.
+   =========================================================================== #}
+
+<section class="card duty" data-duty-card data-duty-state="{{ 'on' if on_duty else 'off' }}"
+         data-duty-endpoint="{{ url_for('collector.push_location') }}"
+         data-duty-interval="{{ config.GPS_THROTTLE_SECONDS }}">
+  <div class="card__body duty__body">
+
+    <div class="duty__state">
+      <span class="duty__dot {{ 'duty__dot--on' if on_duty else '' }}" aria-hidden="true"></span>
+      <div>
+        <p class="duty__label">{{ 'On Duty' if on_duty else 'Off Duty' }}</p>
+        <p class="duty__hint" data-duty-status role="status">
+          {% if on_duty %}
+            Sharing your location while you work.
+          {% else %}
+            Go on duty to start your route and appear on the live map.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('collector.toggle_duty') }}">
+      {{ csrf_field() }}
+      <input type="hidden" name="duty" value="{{ 'off' if on_duty else 'on' }}">
+      <input type="hidden" name="back" value="{{ request.path }}">
+      <button type="submit" class="btn {{ 'btn--secondary' if on_duty else 'btn--primary' }}">
+        {{ icon('radar', 'icon--sm') }}
+        {{ 'Go Off Duty' if on_duty else 'Go On Duty' }}
+      </button>
+    </form>
+  </div>
+</section>

@@ -1,0 +1,19 @@
+{# ===========================================================================
+   Authenticated app shell: fixed rail + sticky topbar + page slot.
+   Every signed-in page extends this template.
+   =========================================================================== #}
+{% extends 'base.html' %}
+
+{% block body %}
+<div class="shell">
+  {% include 'partials/rail.html' %}
+
+  <div class="shell__main">
+    {% include 'partials/topbar.html' %}
+
+    <main class="page" id="main" tabindex="-1">
+      {% block page %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% endblock %}

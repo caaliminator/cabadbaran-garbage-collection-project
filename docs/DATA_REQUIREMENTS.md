@@ -1,0 +1,411 @@
+# Geospatial Data Requirements
+
+Everything the maps draw comes from three files in `data/geo/`. The system
+ships with valid placeholders so it runs today; this document tells you exactly
+what to collect and how to drop the real data in.
+
+**You will not need to edit a single route, template, or JavaScript file.**
+Replace the files, refresh the browser, and the maps pick the data up — the
+loader watches file modification times, so not even a server restart is needed.
+
+---
+
+## The short answer: what data do you actually need?
+
+Exactly two numbers per barangay, and one of them is optional at first.
+
+| # | What to collect | Per barangay | Gets you |
+|---|---|---|---|
+| 1 | **MRF coordinate** — lat, lng of the facility gate | 1 point | The MRF marker, the "truck approaching" alert, hotspot anchoring |
+| 2 | **Boundary outline** — lat, lng of each corner | 3+ points (10–30 is typical) | The coloured barangay zone on every map |
+
+Nothing else. Vehicle positions come from the collectors' phones at runtime,
+the zone colours are derived from the barangay numbers, and the map background
+is free OpenStreetMap tiles. There is no paid map service and no API key
+anywhere in this system.
+
+**Start with #1.** Thirty-one coordinates is an afternoon's work and it lights
+up the MRF markers and the arrival alerts. Boundaries can come later — and if
+your City Planning Office has a shapefile, they come for free (section 1).
+
+### The easy route: a spreadsheet
+
+You do not have to hand-write GeoJSON. Generate blank CSVs, type the
+coordinates in Excel or Google Sheets, and let the importer build the files:
+
+```bash
+python tools/geo_from_csv.py --template   # writes data/geo/input/*.csv
+#   ... fill in the lat and lng columns ...
+python tools/geo_from_csv.py --check      # validate, change nothing
+python tools/geo_from_csv.py              # import into data/geo/
+```
+
+`data/geo/input/mrf_points.csv` arrives pre-filled with all 31 barangay ids and
+names — you only add `lat` and `lng`:
+
+```csv
+barangay_id,barangay_name,mrf_name,lat,lng,notes
+brgy-01,Antonio Luna,Antonio Luna MRF,9.124700,125.533900,beside the covered court
+brgy-02,Bay-ang,Bay-ang MRF,,,not visited yet
+```
+
+`data/geo/input/barangay_zones.csv` takes one row per corner of the outline,
+walked around the boundary in order:
+
+```csv
+barangay_id,barangay_name,point_order,lat,lng
+brgy-01,Antonio Luna,1,9.129800,125.531200
+brgy-01,Antonio Luna,2,9.131020,125.540150
+brgy-01,Antonio Luna,3,9.126100,125.543880
+brgy-01,Antonio Luna,4,9.119550,125.541020
+```
+
+Three things the importer does for you:
+
+- **Both CSVs take `lat, lng`** — the order your phone and Google Maps give it.
+  GeoJSON wants the opposite, and the importer flips it. That single reversal
+  is the most common way this data goes wrong; you now cannot get it wrong.
+- **Closes each polygon ring** by repeating the first point, as GeoJSON requires.
+- **Rejects a coordinate outside Cabadbaran** with a message naming the row,
+  instead of letting a swapped pair put a barangay in the Indian Ocean.
+
+Partial data is fine and expected. Fill in five MRFs and those five draw; the
+other 26 are reported as unlocated and simply do not appear. `--check` tells
+you how many are still missing at any point.
+
+### How to capture one coordinate
+
+Stand at the spot and read it off any phone GPS app, or right-click the place
+in Google Maps and copy the `9.1247, 125.5339` pair it shows. Five to six
+decimal places is about a metre — more precision than this system needs.
+
+For the MRF points, **accuracy matters**: they drive the "Truck TRK-02
+approaching Brgy 14 MRF" alert, which fires at 500 m
+(`Config.TRUCK_APPROACH_METRES`). A point 600 m off makes that alert fire at
+the wrong moment.
+
+### Until then, the placeholders
+
+The system ships with **illustrative placeholder geography** for all 31
+barangays and all 31 MRFs, so every map, alert, and page works today. It is
+generated, not surveyed — see the next section — and the app never presents it
+as real: `/api/geo/status` reports `placeholder: true` and every map carries
+the caption *"Boundaries and MRF pins are illustrative approximations, not
+surveyed data."* Feeding in real data removes that caption automatically.
+
+---
+
+## At a glance
+
+| File | What it holds | Needed for |
+|---|---|---|
+| `barangay_zones.geojson` | 31 barangay boundary polygons | The coloured zones on every map |
+| `mrf_locations.json` | One MRF point per barangay | MRF markers, truck-approach alerts, hotspot anchoring |
+| `hotspots.geojson` | Known problem areas (optional) | The hotspot overlay, when `HOTSPOT_SOURCE = "file"` |
+
+Check what is currently loaded at any time:
+
+```
+GET /api/geo/status
+```
+
+It reports how many zones have real geometry, how many MRFs have coordinates,
+and whether each file is still a placeholder.
+
+---
+
+## What is in `data/geo/` right now
+
+`barangay_zones.geojson` and `mrf_locations.json` currently hold **illustrative
+demo data**, generated by `tools/make_demo_geo.py`. All 31 barangays have a
+polygon and all 31 MRFs have coordinates, so the maps draw a populated city —
+but **none of it was surveyed**:
+
+- Each barangay is placed by rough compass direction from the city centre, at
+  roughly the right distance. It is not on its real footprint.
+- Boundaries are generated shapes sized to not overlap their neighbours, not
+  real boundary lines.
+- MRF pins sit near their barangay centre, not at the real facility.
+
+Because both files keep `"_placeholder": true`, the system never presents this
+as real: `/api/geo/status` reports `placeholder: true`, and every map shows the
+caption *"Boundaries and MRF pins are illustrative approximations, not surveyed
+data."* Replacing them with real data is the file swap described in section 4 —
+no code changes.
+
+To regenerate or adjust the approximation, edit `RURAL_CENTRES` in
+`tools/make_demo_geo.py` and re-run it:
+
+```bash
+python tools/make_demo_geo.py            # rewrite the two files
+python tools/make_demo_geo.py --stdout   # preview, change nothing
+```
+
+Shapes are seeded on the barangay id, so regenerating produces the same map
+rather than reshuffling it.
+
+---
+
+## 1. `barangay_zones.geojson` — barangay boundaries
+
+A standard GeoJSON `FeatureCollection` with **31 features**, one per barangay.
+
+### Required properties on every feature
+
+| Property | Type | Notes |
+|---|---|---|
+| `barangay_id` | string | Must match `data/barangays.json` exactly: `brgy-01` … `brgy-31` |
+| `name` | string | Barangay name, for the map label |
+| `zone_group` | string | `zone-a`, `zone-b`, `zone-c`, or `zone-d` — the four colour groups |
+
+### Geometry
+
+`Polygon` or `MultiPolygon`. Coordinates are **`[longitude, latitude]`** in that
+order — this trips people up constantly, because the rest of the system says
+"lat, lng". GeoJSON is always lng-first. Use decimal degrees, WGS84 (EPSG:4326),
+5–6 decimal places (~1 m precision). Close each ring by repeating the first
+point as the last.
+
+### Zone groups
+
+Group membership follows the barangay **number**, not its position on the map:
+
+| Group | Barangay numbers | Colour on the map |
+|---|---|---|
+| `zone-a` | 1–6 | Blue |
+| `zone-b` | 7–14 | Green |
+| `zone-c` | 15–22 | Amber |
+| `zone-d` | 23–31 | Violet |
+
+The numbering lives in `seed.py` (`BARANGAY_NAMES`, alphabetical, Poblacion 1–12
+in numeric order). **If Cabadbaran has an official barangay numbering, change
+that list to match it** and re-run `python seed.py` on a fresh `data/` — the
+zone colours follow automatically.
+
+### Fully worked example
+
+Barangay 1, Antonio Luna, in zone group A. This is a real, valid feature — the
+coordinates are illustrative, but the structure is exactly what you need:
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "barangay_id": "brgy-01",
+        "name": "Antonio Luna",
+        "zone_group": "zone-a"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [125.53120, 9.12980],
+            [125.54015, 9.13102],
+            [125.54388, 9.12610],
+            [125.54102, 9.11955],
+            [125.53344, 9.11890],
+            [125.52988, 9.12401],
+            [125.53120, 9.12980]
+          ]
+        ]
+      }
+    }
+  ]
+}
+```
+
+Note the `_placeholder: true` flag at the top of the shipped file. **Delete that
+line** when you paste real data in, or the system will keep treating the file as
+a stub and reporting "no boundaries loaded".
+
+### Where to get the polygons
+
+- The City Planning and Development Office or the City Assessor usually holds
+  barangay boundary shapefiles.
+- PhilGIS (`philgis.org`) publishes free administrative boundary shapefiles down
+  to barangay level for Agusan del Norte.
+- OpenStreetMap has partial coverage; export with the Overpass API.
+- A `.shp` file converts to GeoJSON with QGIS: *Layer → Save As → GeoJSON*, CRS
+  set to EPSG:4326. Then add the three required properties to each feature.
+
+---
+
+## 2. `mrf_locations.json` — MRF coordinates
+
+A JSON array with **one object per barangay** (31 total). The shipped file is
+already pre-filled with all 31 `barangay_id`s and names — you only need to fill
+in the numbers.
+
+| Field | Type | Notes |
+|---|---|---|
+| `barangay_id` | string | `brgy-01` … `brgy-31` |
+| `name` | string | e.g. `"Antonio Luna MRF"` |
+| `lat` | number | Decimal degrees, e.g. `9.12345` |
+| `lng` | number | Decimal degrees, e.g. `125.53421` |
+
+```json
+[
+  { "barangay_id": "brgy-01", "name": "Antonio Luna MRF", "lat": 9.12470, "lng": 125.53388 },
+  { "barangay_id": "brgy-02", "name": "Bay-ang MRF",      "lat": 9.15012, "lng": 125.56104 }
+]
+```
+
+Remove the leading `{"_placeholder": true, ...}` object when you supply real data.
+
+**Partial data is fine.** Fill in five MRFs and those five get markers; the other
+26 are reported as `unlocated` and simply do not draw. Nothing breaks, and
+`/api/geo/status` tells you how many are still missing.
+
+### How to capture a coordinate
+
+Stand at the MRF gate and read the coordinates off any phone GPS app, or right-
+click the spot in Google Maps and copy the `9.1247, 125.5339` pair it shows.
+Order is always **lat, lng** in this file — the opposite of the GeoJSON above.
+
+**Accuracy matters here.** These points drive the "Truck TRK-02 approaching
+Brgy 14 MRF" alert, which fires at 500 m (`Config.TRUCK_APPROACH_METRES`). A
+coordinate that is 600 m off will make the alert fire at the wrong moment or not
+at all.
+
+---
+
+## 3. `hotspots.geojson` — problem areas (optional)
+
+**You can skip this file entirely.** By default `HOTSPOT_SOURCE = "derived"`,
+which computes hotspots from data the system already collects: Not Collected
+entries plus resident reports, grouped by barangay and purok over a rolling
+30-day window. That works from day one with no external data.
+
+Supply this file only when you have surveyed hotspot data that the system cannot
+infer — illegal dumping sites, chronic problem corners, hazardous areas. Then set
+`HOTSPOT_SOURCE = "file"` in `config.py`.
+
+Points or polygons, with these properties:
+
+| Property | Type | Notes |
+|---|---|---|
+| `hotspot_id` | string | Any stable unique id |
+| `barangay_id` | string | `brgy-01` … `brgy-31` |
+| `purok` | string | e.g. `"Purok 3"` |
+| `severity` | string | `low`, `medium`, or `high` |
+| `type` | string | e.g. `"illegal_dumping"`, `"uncollected"` |
+| `last_reported` | string | `YYYY-MM-DD` |
+| `notes` | string | Free text shown in the popup |
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "hotspot_id": "hs-001",
+        "barangay_id": "brgy-01",
+        "purok": "Purok 3",
+        "severity": "high",
+        "type": "illegal_dumping",
+        "last_reported": "2026-08-14",
+        "notes": "Roadside dumping beside the creek crossing."
+      },
+      "geometry": { "type": "Point", "coordinates": [125.53390, 9.12455] }
+    }
+  ]
+}
+```
+
+### One honest limitation
+
+Derived hotspots are grouped by **purok** but positioned at the **barangay's**
+MRF (or, failing that, its polygon centroid), because the system has no purok
+geometry. Three hotspots in three different puroks of one barangay therefore
+stack on the same point.
+
+To fix that, supply purok centroids — either as a `hotspots.geojson` with real
+per-purok points, or by adding a `purok_points` array to a barangay's zone
+feature. Until then, `/api/geo/hotspots` returns `meta.anchored_to: "barangay"`
+on every derived feature so the UI can be upfront about it.
+
+---
+
+## 4. Swapping the real data in
+
+> If you filled in the CSVs from the top of this document, you are already
+> done — `python tools/geo_from_csv.py` performed all of the steps below,
+> keeping the files it replaced as `*.backup`. The manual route follows for
+> when you have GeoJSON straight out of QGIS.
+
+1. **Back up first.**
+   ```
+   cp -r data/geo data/geo.backup
+   ```
+
+2. **Replace the files.** Copy your real `barangay_zones.geojson`,
+   `mrf_locations.json`, and (optionally) `hotspots.geojson` into `data/geo/`,
+   overwriting the placeholders.
+
+3. **Delete the placeholder flags.** Remove `"_placeholder": true` from the top
+   of each file, and the leading `{"_placeholder": ...}` object from
+   `mrf_locations.json`. The system keeps reporting a file as a stub while that
+   flag is present.
+
+4. **Check it loaded.** Open `/api/geo/status` in a browser:
+   ```json
+   { "zones": { "loaded": 31, "total": 31, "placeholder": false },
+     "mrfs":  { "loaded": 31, "total": 31, "placeholder": false } }
+   ```
+   `loaded` should equal `total`. If `loaded` is 0, the most likely causes are a
+   `barangay_id` that does not match `brgy-01`…`brgy-31`, or coordinates written
+   lat-first when GeoJSON wants lng-first (your barangays will appear somewhere
+   in Somalia — a `[9.1, 125.5]` pair read as lng-first lands off the coast of
+   Africa).
+
+5. **Refresh the map.** No restart needed — the loader notices the changed file.
+
+6. **Turn on hotspots when you want them:** set `HOTSPOT_LAYER_ENABLED = True`
+   in `config.py`.
+
+---
+
+## 5. Validating before you commit
+
+```bash
+# Valid JSON?
+python -c "import json; json.load(open('data/geo/barangay_zones.geojson'))"
+
+# All 31 ids present and correct?
+python -c "
+import json
+f = json.load(open('data/geo/barangay_zones.geojson'))
+ids = {x['properties']['barangay_id'] for x in f['features']}
+want = {f'brgy-{n:02d}' for n in range(1, 32)}
+print('missing:', sorted(want - ids) or 'none')
+print('unexpected:', sorted(ids - want) or 'none')
+"
+
+# Coordinates inside Cabadbaran's rough bounding box?
+python -c "
+import json
+f = json.load(open('data/geo/mrf_locations.json'))
+for r in f:
+    if not isinstance(r, dict) or r.get('lat') is None: continue
+    if not (9.0 < r['lat'] < 9.3 and 125.4 < r['lng'] < 125.7):
+        print('suspicious:', r['barangay_id'], r['lat'], r['lng'])
+print('bounds check done')
+"
+```
+
+---
+
+## 6. Data the system does *not* need from you
+
+To be clear about scope — none of these require external data files:
+
+- **Live vehicle positions** come from the collectors' phone GPS at runtime.
+- **Zone colours** are derived from barangay numbers in `config.py`.
+- **Purok lists** live in `data/barangays.json` and are editable through the
+  admin UI (currently seeded as Purok 1–7 for every barangay — correct these
+  whenever you have the real lists).
+- **The map background** is OpenStreetMap tiles, free and keyless.

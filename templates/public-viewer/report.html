@@ -1,0 +1,169 @@
+{% extends 'public-viewer/base.html' %}
+{% from 'partials/icons.html' import icon %}
+
+{% block public %}
+
+{# ===========================================================================
+   The anonymous report. Three narrowing choices, then the answer.
+
+   The whole flow is a plain form that reloads on each choice, so it works with
+   JavaScript off entirely -- a resident at the kerb on a weak signal should
+   still be able to report. Where JS is available, the selects update in place
+   instead of reloading.
+   =========================================================================== #}
+
+<section class="card">
+  <div class="card__head" style="display:block">
+    <h1 class="card__title">Was your waste collected?</h1>
+    <p class="text-sm muted">
+      No account and no name needed. Your report goes to your barangay admin.
+    </p>
+  </div>
+
+  <div class="card__body">
+    {% if remaining <= 0 %}
+      <div class="notice notice--danger" role="status" style="margin:0">
+        {{ icon('alert', 'icon--sm') }}
+        <div>
+          <p class="strong">You have reached today's limit</p>
+          <p class="text-sm">
+            Up to {{ limit }} reports can be sent from one device each day.
+            Please try again tomorrow, or contact your barangay office directly
+            if something is urgent.
+          </p>
+        </div>
+      </div>
+    {% else %}
+      <form method="post" data-validate novalidate data-report-form
+            data-options-url="{{ url_for('public.api_properties') }}">
+        {{ csrf_field() }}
+        <input type="hidden" name="action" value="submit">
+
+        {# ---- Step 1: barangay ---- #}
+        <div class="field">
+          <label class="field__label" for="barangay_id">
+            1. Your Barangay<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <select class="field__select" id="barangay_id" name="barangay_id" required
+                  data-report-barangay>
+            <option value="">Select your barangay…</option>
+            {% for value, label in barangays %}
+              <option value="{{ value }}" {% if selected_barangay == value %}selected{% endif %}>
+                {{ label }}
+              </option>
+            {% endfor %}
+          </select>
+          <noscript>
+            <button type="submit" class="btn btn--secondary btn--sm"
+                    style="margin-top:var(--sp-2)" name="action" value="choose">
+              Continue
+            </button>
+          </noscript>
+        </div>
+
+        {# ---- Step 2: purok ---- #}
+        <div class="field">
+          <label class="field__label" for="purok">2. Your Purok</label>
+          <select class="field__select" id="purok" name="purok" data-report-purok
+                  {% if not selected_barangay %}disabled{% endif %}>
+            <option value="">All puroks</option>
+            {% for p in puroks %}
+              <option value="{{ p }}" {% if selected_purok == p %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+          <p class="field__hint">Narrows the list below. You can leave it as is.</p>
+        </div>
+
+        {# ---- Step 3: property ---- #}
+        <div class="field">
+          <label class="field__label" for="property_id">
+            3. Your Household or Establishment<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <select class="field__select" id="property_id" name="property_id" required
+                  data-report-property size="6" style="min-height:150px"
+                  {% if not selected_barangay %}disabled{% endif %}>
+            {% for p in properties %}
+              <option value="{{ p.id }}">{{ p.owner_name }} — {{ p.purok }} ({{ p.type }})</option>
+            {% else %}
+              <option value="" disabled>
+                {% if selected_barangay %}
+                  No properties are registered here yet
+                {% else %}
+                  Choose your barangay first
+                {% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <p class="field__hint" data-report-count>
+            {{ properties|length }} listed. If yours is missing, ask your
+            barangay office to add it.
+          </p>
+        </div>
+
+        {# ---- Step 4: the answer ---- #}
+        <fieldset style="border:0;padding:0;margin:0 0 var(--sp-4)">
+          <legend class="field__label" style="margin-bottom:var(--sp-2)">
+            4. What happened?<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </legend>
+          <div class="status-switch">
+            <label class="status-switch__opt status-switch__opt--yes">
+              <input type="radio" name="status_reported" value="Collected" required>
+              {{ icon('check', 'icon--sm') }}<span>It was collected</span>
+            </label>
+            <label class="status-switch__opt status-switch__opt--no">
+              <input type="radio" name="status_reported" value="Not Collected" required>
+              {{ icon('x', 'icon--sm') }}<span>It was not collected</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label class="field__label" for="comment">
+            Comment <span class="muted">(optional)</span>
+          </label>
+          <textarea class="field__textarea" id="comment" name="comment" maxlength="500"
+                    placeholder="Anything the barangay should know…"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--lg btn--block">
+          {{ icon('check', 'icon--sm') }} Send Report
+        </button>
+
+        <p class="field__hint" style="margin-top:var(--sp-3);text-align:center">
+          {{ remaining }} of {{ limit }} report{{ '' if limit == 1 else 's' }}
+          left today from this device.
+        </p>
+      </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card__head"><h2 class="card__title">What happens next</h2></div>
+  <div class="card__body">
+    <ul class="notes">
+      <li>
+        {{ icon('info', 'icon--sm') }}
+        <span>Your barangay admin sees the report straight away, marked as
+              coming from a resident.</span>
+      </li>
+      <li>
+        {{ icon('info', 'icon--sm') }}
+        <span>If the collector already recorded something different, both
+              records are kept and your barangay admin checks which is right —
+              your report is never simply overwritten, and neither is
+              theirs.</span>
+      </li>
+      <li>
+        {{ icon('info', 'icon--sm') }}
+        <span>Reports are anonymous. No name, account, or location is
+              recorded.</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+{% endblock %}

@@ -1,0 +1,230 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, search_input, filter_select,
+                                      th, empty, field, select %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Property List</h1>
+    <p class="page__sub">
+      Households and establishments registered in Brgy. {{ barangay }}.
+    </p>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="Property summary">
+  {{ stat('Total Property', total|comma,
+          'Registered in Brgy. ' ~ barangay, 'home', 'info') }}
+  {{ stat('Collected Today', rows|selectattr('status', 'equalto', 'Collected')|list|length,
+          'Recorded by your collectors', 'check', 'success') }}
+  {{ stat('Not Collected Today', rows|selectattr('status', 'equalto', 'Not Collected')|list|length,
+          'With a recorded reason', 'alert', 'danger') }}
+</section>
+
+{# ---- Add property -----------------------------------------------------
+   The barangay is fixed to this admin's own and is not a form field: it is
+   taken from the session server-side, so it cannot be changed by editing the
+   page.                                                                   #}
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Add New Property</h2>
+  </div>
+
+  <form class="card__body form" method="post" data-validate novalidate>
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="create">
+
+    <div class="form__grid">
+      {{ field('owner_name', 'Owner Name', required=True,
+               placeholder='Juan Dela Cruz', autocomplete='name') }}
+      {{ select('type', 'Property', types, required=True, placeholder='Select type…') }}
+
+      <div class="field">
+        <label class="field__label" for="barangay_display">Barangay</label>
+        <input class="field__input" id="barangay_display" value="{{ barangay }}"
+               readonly aria-describedby="barangay-hint">
+        <p class="field__hint" id="barangay-hint">
+          Locked to your assigned barangay.
+        </p>
+      </div>
+
+      {{ select('purok', 'Purok', puroks, required=True, placeholder='Select purok…') }}
+
+      <div class="field">
+        <label class="field__label" for="tag">Tag <span class="muted">(optional)</span></label>
+        <input class="field__input" id="tag" name="tag" list="property-tags"
+               maxlength="80" placeholder="Has Special Waste"
+               aria-describedby="tag-hint">
+        <p class="field__hint" id="tag-hint">
+          Shown to the collector before they arrive.
+        </p>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="note">Note <span class="muted">(optional)</span></label>
+        <input class="field__input" id="note" name="note" maxlength="300"
+               placeholder="Access notes, landmarks…">
+      </div>
+    </div>
+
+    <div class="row row--end">
+      <button type="reset" class="btn btn--ghost">Clear</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('plus', 'icon--sm') }} Add Property
+      </button>
+    </div>
+  </form>
+</section>
+
+<datalist id="property-tags">
+  {% for t in tags %}<option value="{{ t }}"></option>{% endfor %}
+</datalist>
+
+{# ---- Records ---------------------------------------------------------- #}
+<section class="card" data-table-controller="propTable">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Property Records</h2>
+    {{ search_input('Search owner name', 'prop-search') }}
+    {{ filter_select('type', 'All Types', types) }}
+    {{ filter_select('purok', 'All Puroks', puroks) }}
+    {{ filter_select('status', 'All Status', ['Collected', 'Pending', 'Not Collected']) }}
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="propTable">
+      <caption class="sr-only">Registered properties in this barangay</caption>
+      <thead>
+        <tr>
+          {{ th('Name', 'name') }}
+          {{ th('Property', 'type') }}
+          {{ th('Purok', 'purok') }}
+          {{ th('Tag') }}
+          {{ th('Status Today', 'status') }}
+          {{ th('Date Added') }}
+          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-name="{{ r.owner_name }}" data-type="{{ r.type }}"
+              data-purok="{{ r.purok }}" data-status="{{ r.status }}">
+            <td data-label="Name"><span class="strong">{{ r.owner_name }}</span></td>
+            <td data-label="Property">{{ r.type }}</td>
+            <td data-label="Purok">{{ r.purok }}</td>
+            <td data-label="Tag">
+              {% if r.tag %}<span class="tag">{{ r.tag }}</span>{% else %}—{% endif %}
+            </td>
+            <td data-label="Status">
+              {{ status(r.status) }}
+              {% if r.disputed %}<span class="badge badge--warning">Disputed</span>{% endif %}
+            </td>
+            <td data-label="Added" class="muted text-xs">{{ r.created_at|datetime_display }}</td>
+            <td class="table__actions">
+              <div class="actions">
+                <button type="button" class="btn btn--icon"
+                        data-modal-open="prop-edit"
+                        data-set-id="{{ r.id }}"
+                        data-set-title="{{ r.owner_name }}"
+                        data-set-owner_name="{{ r.owner_name }}"
+                        data-set-type="{{ r.type }}"
+                        data-set-purok="{{ r.purok }}"
+                        data-set-tag="{{ r.tag }}"
+                        data-set-note="{{ r.note }}"
+                        aria-label="Edit {{ r.owner_name }}">
+                  {{ icon('edit', 'icon--sm') }}
+                </button>
+
+                <form method="post" style="display:contents"
+                      data-confirm-message="Remove {{ r.owner_name }} from the property list? Past collection records are kept.">
+                  {{ csrf_field() }}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="{{ r.id }}">
+                  <button type="submit" class="btn btn--icon is-danger"
+                          aria-label="Delete {{ r.owner_name }}">
+                    {{ icon('trash', 'icon--sm') }}
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if rows %}hidden{% endif %}>
+    {{ empty('No properties yet',
+             'Add the households and establishments in your barangay so collectors can record against them.',
+             'home') }}
+  </div>
+
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+</section>
+
+{# ---- Edit dialog ------------------------------------------------------ #}
+<div class="modal" id="prop-edit" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="prop-edit-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate>
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="update">
+    <input type="hidden" name="id" data-fill-value="id">
+
+    <div class="modal__head">
+      <h2 id="prop-edit-title">Edit <span data-fill="title">property</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+
+    <div class="modal__body stack">
+      <div class="form__grid form__grid--2">
+        <div class="field">
+          <label class="field__label" for="edit_owner_name">
+            Owner Name<span class="field__req" aria-hidden="true">*</span>
+          </label>
+          <input class="field__input" id="edit_owner_name" name="owner_name"
+                 required data-fill-value="owner_name">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_type">Property</label>
+          <select class="field__select" id="edit_type" name="type" required
+                  data-fill-value="type">
+            {% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_purok">Purok</label>
+          <select class="field__select" id="edit_purok" name="purok" required
+                  data-fill-value="purok">
+            {% for p in puroks %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_tag">Tag</label>
+          <input class="field__input" id="edit_tag" name="tag" list="property-tags"
+                 maxlength="80" data-fill-value="tag">
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="edit_note">Note</label>
+        <textarea class="field__textarea" id="edit_note" name="note" maxlength="300"
+                  data-fill-value="note"></textarea>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('check', 'icon--sm') }} Save changes
+      </button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

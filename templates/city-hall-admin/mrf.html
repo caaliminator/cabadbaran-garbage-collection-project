@@ -1,0 +1,261 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, filter_select, th, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">MRF</h1>
+    <p class="page__sub">
+      Pickup status of all {{ counts.total }} barangay MRFs, and what has
+      reached the landfill.
+    </p>
+  </div>
+  <div class="page__actions">
+    <form method="get" class="row" style="gap:var(--sp-2);align-items:flex-end">
+      <div class="field">
+        <label class="field__label" for="date">Date</label>
+        <input class="field__input" type="date" id="date" name="date"
+               value="{{ selected_date }}">
+      </div>
+      <button type="submit" class="btn btn--secondary">
+        {{ icon('calendar', 'icon--sm') }} View
+      </button>
+    </form>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="MRF collection summary">
+  {% set tones = ['warning', 'danger', 'success', 'info'] %}
+  {% for label, value, hint, ico in stats %}
+    {{ stat(label, value, hint, ico, tones[loop.index0]) }}
+  {% endfor %}
+</section>
+
+{# ---- Overall collected load ------------------------------------------
+   Computed up the chain: household entries -> barangay load -> MRF pickup
+   -> here. Sacks and kilos are kept apart because they are different units. #}
+<section class="card">
+  <div class="card__head">
+    <div>
+      <h2 class="card__title">Overall Collected Load</h2>
+      <p class="text-sm muted">Totalled across every MRF collected on this date.</p>
+    </div>
+  </div>
+  <div class="card__body">
+    {% if not load.empty %}
+      <dl class="dlist">
+        {% for line in load.lines | by_waste_type %}
+          <div class="dlist__row">
+            <dt class="dlist__key">{{ line.label }}</dt>
+            <dd class="dlist__val">{{ line.display }}</dd>
+          </div>
+        {% endfor %}
+        <div class="dlist__row dlist__row--total">
+          <dt>Total</dt>
+          <dd class="dlist__val">{{ load.total }}</dd>
+        </div>
+      </dl>
+    {% else %}
+      {{ empty('Nothing collected yet',
+               'Loads appear here as trucks record their MRF pickups.', 'package') }}
+    {% endif %}
+  </div>
+</section>
+
+{# ---- MRF pickup table -------------------------------------------------- #}
+<section class="card" data-table-controller="mrfTable">
+  <div class="toolbar">
+    <h2 class="toolbar__title">MRF Pickups</h2>
+    {{ filter_select('barangay', 'All Barangay', barangays) }}
+    {{ filter_select('truck', 'All Truck', trucks) }}
+    {{ filter_select('status', 'All Status', statuses) }}
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="mrfTable">
+      <caption class="sr-only">Pickup status of each barangay MRF</caption>
+      <thead>
+        <tr>
+          {{ th('Barangay', 'barangay') }}
+          {{ th('Source Schedule Day') }}
+          {{ th('Waste Type') }}
+          {{ th('Assigned Truck', 'truck') }}
+          {{ th('Status', 'status') }}
+          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-barangay="{{ r.barangay_id }}" data-truck="{{ r.truck }}"
+              data-status="{{ r.status }}">
+            <td data-label="Barangay">
+              <span class="strong">{{ r.barangay }}</span>
+              {% if r.property_count %}
+                <span class="sub">{{ r.property_count }} household{{ '' if r.property_count == 1 else 's' }} waiting</span>
+              {% endif %}
+            </td>
+            <td data-label="Source Day">{{ r.source_schedule_day }}</td>
+            <td data-label="Waste Type">
+              {{ r.waste_type }}
+              {% if r.load.lines %}
+                <div class="tags">
+                  {% for line in r.load.lines | by_waste_type %}
+                    <span class="tag">{{ line.label }} — {{ line.display }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </td>
+            <td data-label="Truck"><span class="mono">{{ r.truck }}</span></td>
+            <td data-label="Status">
+              {{ status(r.status) }}
+              {% if r.auto_missed %}
+                <span class="badge badge--muted">Auto</span>
+              {% endif %}
+            </td>
+            <td class="table__actions">
+              <button type="button" class="btn btn--icon"
+                      data-modal-open="mrf-detail"
+                      data-set-name="{{ r.mrf_name }}"
+                      data-set-source="{{ r.source_schedule_day }}"
+                      data-set-waste="{{ r.waste_type }}"
+                      data-set-truck="{{ r.truck }}"
+                      data-set-operator="{{ r.operator }}"
+                      data-set-total="{{ r.load.total }}"
+                      data-set-status="{{ r.status }}"
+                      data-set-reason="{{ r.reason or '—' }}"
+                      data-set-note="{{ r.note or 'No notes recorded.' }}"
+                      aria-label="View pickup details for {{ r.barangay }}">
+                {{ icon('eye', 'icon--sm') }}
+              </button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if rows %}hidden{% endif %}>
+    {{ empty('No MRFs match', 'Adjust the filters or pick another date.', 'recycle') }}
+  </div>
+
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+</section>
+
+{# ---- Delivered to landfill --------------------------------------------- #}
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Delivered to Landfill</h2>
+    <span class="badge badge--info">{{ deliveries|length }}</span>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table">
+      <caption class="sr-only">Loads delivered to final disposal</caption>
+      <thead>
+        <tr>
+          {{ th('Assigned Truck') }}
+          {{ th('Source Schedule Day') }}
+          {{ th('Load') }}
+          {{ th('Barangays Included') }}
+          {{ th('Time') }}
+          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in deliveries %}
+          <tr>
+            <td data-label="Truck"><span class="mono strong">{{ d.truck_code }}</span></td>
+            <td data-label="Source Day">{{ d.schedule_day }}</td>
+            <td data-label="Load">{{ d.load.total }}</td>
+            <td data-label="Barangays">
+              <div class="tags">
+                {% for b in d.barangays %}<span class="tag">{{ b }}</span>{% endfor %}
+              </div>
+            </td>
+            <td data-label="Time" class="muted text-xs">{{ d.time_display }}</td>
+            <td class="table__actions">
+              <button type="button" class="btn btn--icon"
+                      data-modal-open="delivery-detail"
+                      data-set-name="{{ d.truck_code }}"
+                      data-set-operator="{{ d.operator }}"
+                      data-set-total="{{ d.load.total }}"
+                      data-set-mrfs="{{ d.barangays|join(', ') }}"
+                      data-set-when="{{ d.date_display }} {{ d.time_display }}"
+                      aria-label="View delivery by {{ d.truck_code }}">
+                {{ icon('eye', 'icon--sm') }}
+              </button>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6">
+              {{ empty('No deliveries yet',
+                       'Landfill deliveries recorded by the trucks appear here.', 'truck') }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ---- Dialogs ---------------------------------------------------------- #}
+<div class="modal" id="mrf-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="mrf-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <h2 id="mrf-detail-title" data-fill="name">MRF pickup</h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Source Schedule Day</span><span class="kv__val" data-fill="source">—</span></div>
+        <div class="kv"><span class="kv__key">Waste Type</span><span class="kv__val" data-fill="waste">—</span></div>
+        <div class="kv"><span class="kv__key">Assigned Truck</span><span class="kv__val mono" data-fill="truck">—</span></div>
+        <div class="kv"><span class="kv__key">Operator</span><span class="kv__val" data-fill="operator">—</span></div>
+        <div class="kv"><span class="kv__key">Load</span><span class="kv__val" data-fill="total">—</span></div>
+        <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
+        <div class="kv"><span class="kv__key">Reason</span><span class="kv__val" data-fill="reason">—</span></div>
+      </div>
+      <div class="kv" style="margin-top:var(--sp-3)">
+        <span class="kv__key">Note</span>
+        <span class="kv__val text-sm" data-fill="note">—</span>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="delivery-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="delivery-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <h2 id="delivery-detail-title">Delivery — <span data-fill="name">truck</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Operator</span><span class="kv__val" data-fill="operator">—</span></div>
+        <div class="kv"><span class="kv__key">Total Load</span><span class="kv__val" data-fill="total">—</span></div>
+        <div class="kv"><span class="kv__key">Delivered</span><span class="kv__val" data-fill="when">—</span></div>
+      </div>
+      <div class="kv" style="margin-top:var(--sp-3)">
+        <span class="kv__key">MRFs Included</span>
+        <span class="kv__val text-sm" data-fill="mrfs">—</span>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

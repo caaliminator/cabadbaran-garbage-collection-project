@@ -1,0 +1,183 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">MRF Collection</h1>
+    <p class="page__sub">
+      {% if assignment %}
+        {{ assignment.truck_code }} · {{ cards|length }} assigned MRF{{ '' if cards|length == 1 else 's' }}
+      {% else %}
+        No route assigned yet
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+{% include 'partials/duty_toggle.html' %}
+
+{# ---- Today's schedule ------------------------------------------------- #}
+<section class="today-strip" aria-label="Today's schedule">
+  <div class="today-card">
+    <span class="today-card__icon" aria-hidden="true">{{ icon('calendar') }}</span>
+    <div>
+      <p class="today-card__label">Today's Schedule</p>
+      <p class="today-card__value">{{ now.strftime('%A') }}<br>{{ today_date }}</p>
+    </div>
+  </div>
+
+  <div class="today-card">
+    <span class="today-card__icon" aria-hidden="true">
+      <span class="chip__swatch swatch-{{ today_row.tone }}" style="width:16px;height:16px"></span>
+    </span>
+    <div>
+      <p class="today-card__label">Today's Waste Type</p>
+      <p class="today-card__value">{{ today_row.waste_type }}</p>
+    </div>
+  </div>
+</section>
+
+{% if not assignment %}
+  <div class="card"><div class="card__body">
+    {{ empty('No route assigned',
+             'The City Hall Admin has not assigned you a truck and barangay MRFs yet. Your route will appear here once they do.',
+             'truck') }}
+  </div></div>
+{% endif %}
+
+<section class="split split--wide">
+
+  {# ---- Assigned MRFs -------------------------------------------------- #}
+  <div class="stack">
+    <div class="row row--between">
+      <h2 class="card__title">Assigned Barangay MRFs</h2>
+      <span class="text-sm muted">
+        {{ counts.collected }} of {{ counts.total }} collected
+      </span>
+    </div>
+
+    <div class="stops">
+      {% for c in cards %}
+        {% set tone = 'collected' if c.status == 'Collected from MRF'
+                      else ('not-collected' if c.status == 'Not Collected' else 'pending') %}
+        <a class="stop stop--{{ tone }}"
+           href="{{ url_for('collector.truck_record', barangay_id=c.barangay_id) }}">
+          <span class="stop__icon" aria-hidden="true">
+            {% if c.status == 'Collected from MRF' %}{{ icon('check') }}
+            {% elif c.status == 'Not Collected' %}{{ icon('x') }}
+            {% else %}{{ icon('recycle') }}{% endif %}
+          </span>
+
+          <span class="stop__main">
+            <span class="stop__name">
+              {{ c.mrf_name }}
+              {% if c.is_carry_over %}
+                <span class="badge badge--warning">Carry-over</span>
+              {% endif %}
+            </span>
+            <span class="stop__meta">
+              <span>Source schedule: {{ c.source_schedule_day }}</span>
+              <span>{{ c.waste_type }}</span>
+              {% if c.property_count %}
+                <span>{{ c.property_count }} household{{ '' if c.property_count == 1 else 's' }}</span>
+              {% endif %}
+            </span>
+          </span>
+
+          <span class="stop__side">
+            {{ status(c.status) }}
+            {% if c.delivered %}<span class="stop__time">Delivered</span>{% endif %}
+          </span>
+
+          {% if c.load.lines %}
+            <span class="stop__load">
+              {% for line in c.load.lines | by_waste_type %}
+                <span class="tag">{{ line.label }} — {{ line.display }}</span>
+              {% endfor %}
+            </span>
+          {% elif c.reason %}
+            <span class="stop__load"><span class="badge badge--danger">{{ c.reason }}</span></span>
+          {% elif c.status == 'Pending' %}
+            <span class="stop__load">
+              <span class="text-xs muted">Nothing collected into this MRF yet.</span>
+            </span>
+          {% endif %}
+        </a>
+      {% else %}
+        {% if assignment %}
+          <div class="card"><div class="card__body">
+            {{ empty('No MRFs on your route',
+                     'Your assignment covers no barangay MRFs yet.', 'recycle') }}
+          </div></div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---- Running load + deliver ------------------------------------------
+     This total comes from the barangay collection entries, not from anything
+     the operator types. Delivering stamps the pickups, which is what clears
+     the running load so a second trip starts from zero.                    #}
+  <div class="stack">
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">Overall Collected Load</h2></div>
+      <div class="card__body">
+        <div class="route-progress__head" style="margin-bottom:var(--sp-4)">
+          <span class="route-progress__count">
+            {{ load.mrf_count }}<small> MRF{{ '' if load.mrf_count == 1 else 's' }} on board</small>
+          </span>
+        </div>
+
+        {% if not load.empty %}
+          <dl class="dlist">
+            {% for line in load.lines | by_waste_type %}
+              <div class="dlist__row">
+                <dt class="dlist__key">{{ line.label }}</dt>
+                <dd class="dlist__val">{{ line.display }}</dd>
+              </div>
+            {% endfor %}
+            <div class="dlist__row dlist__row--total">
+              <dt>Total</dt>
+              <dd class="dlist__val">{{ load.total }}</dd>
+            </div>
+          </dl>
+
+          <form method="post" action="{{ url_for('collector.truck_deliver') }}"
+                style="margin-top:var(--sp-4)"
+                data-confirm-message="Deliver {{ load.total }} from {{ load.mrf_count }} MRF(s) to the landfill? This clears your running load.">
+            {{ csrf_field() }}
+            <input type="hidden" name="gps" data-geo-input value="">
+            <button type="submit" class="btn btn--primary btn--block btn--lg">
+              {{ icon('truck', 'icon--sm') }} Deliver to Landfill
+            </button>
+          </form>
+        {% else %}
+          {{ empty('Nothing on board',
+                   'Collect from an MRF and its load will total up here, ready to deliver.',
+                   'package') }}
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">Today's Progress</h2></div>
+      <div class="card__body">
+        <dl class="route-legend">
+          <div><dd>{{ counts.collected }}</dd><dt>Collected</dt></div>
+          <div><dd>{{ counts.pending }}</dd><dt>Pending</dt></div>
+          <div><dd>{{ counts.not_collected }}</dd><dt>Missed</dt></div>
+        </dl>
+        <p class="field__hint" style="margin-top:var(--sp-3)">
+          {{ icon('info', 'icon--sm') }}
+          A missed MRF opens a carry-over so the City Hall Admin can reassign
+          or reschedule it.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

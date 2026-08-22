@@ -1,0 +1,259 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, progress_stat, search_input,
+                                      filter_select, th, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Collections</h1>
+    <p class="page__sub">
+      Brgy. {{ barangay }} · {{ selected_date|date_display }}
+      {% if not is_today %}<span class="badge badge--muted">Past date</span>{% endif %}
+    </p>
+  </div>
+
+  {# Defaults to today; the admin can look back at any earlier day. #}
+  <div class="page__actions">
+    <form method="get" class="row" style="gap:var(--sp-2);align-items:flex-end">
+      <div class="field">
+        <label class="field__label" for="date">Date</label>
+        <input class="field__input" type="date" id="date" name="date"
+               value="{{ selected_date }}" max="{{ today }}">
+      </div>
+      <button type="submit" class="btn btn--secondary">
+        {{ icon('calendar', 'icon--sm') }} View
+      </button>
+      {% if not is_today %}
+        <a class="btn btn--ghost" href="{{ url_for('brgy.collections') }}">Today</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{# ---- Status counters -------------------------------------------------- #}
+<section class="grid grid--stats" aria-label="Collection status">
+  {{ progress_stat('Collected', counts.collected, counts.total, counts.percent,
+                   [('Pending', counts.pending, 'warning'),
+                    ('Not Collected', counts.not_collected, 'danger')],
+                   'check', 'success') }}
+  {{ stat('Pending', counts.pending, 'No status recorded yet', 'clock', 'warning') }}
+  {{ stat('Not Collected', counts.not_collected, 'With a recorded reason', 'alert', 'danger') }}
+  {{ stat('Disputed', counts.disputed,
+          'Resident and collector disagree', 'alert',
+          'danger' if counts.disputed else 'info') }}
+</section>
+
+<section class="split split--wide">
+
+  {# ---- Collectors table ---------------------------------------------- #}
+  <div class="stack">
+    <section class="card">
+      <div class="card__head">
+        <h2 class="card__title">Barangay Collectors</h2>
+        <span class="badge badge--info">{{ collectors|length }}</span>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <caption class="sr-only">Tricycle collectors and their totals for this date</caption>
+          <thead>
+            <tr>
+              {{ th('Name') }}
+              {{ th('TRI No.') }}
+              {{ th('Purok Coverage') }}
+              {{ th('Entries') }}
+              <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in collectors %}
+              <tr>
+                <td data-label="Name">
+                  <span class="strong">{{ c.collector }}</span>
+                  <span class="sub">{{ c.username }}</span>
+                </td>
+                <td data-label="TRI No."><span class="mono">{{ c.tricycle }}</span></td>
+                <td data-label="Purok Coverage">
+                  <div class="tags">
+                    {% for p in c.puroks %}<span class="tag">{{ p }}</span>{% endfor %}
+                  </div>
+                </td>
+                <td data-label="Entries">
+                  {{ c.collected }} collected
+                  {% if c.not_collected %}· {{ c.not_collected }} missed{% endif %}
+                </td>
+                <td class="table__actions">
+                  <button type="button" class="btn btn--icon"
+                          data-modal-open="collector-detail"
+                          data-set-name="{{ c.collector }}"
+                          data-set-vehicle="{{ c.tricycle }}"
+                          data-set-puroks="{{ c.puroks|join(', ') or '—' }}"
+                          data-set-status="{{ c.status }}"
+                          data-set-availability="{{ c.availability }}"
+                          data-set-collected="{{ c.collected }}"
+                          data-set-missed="{{ c.not_collected }}"
+                          data-set-total="{{ c.totals.total }}"
+                          data-set-load="{% for l in c.totals.lines | by_waste_type %}{{ l.label }} — {{ l.value }} {{ l.display }}{% if not loop.last %}, {% endif %}{% else %}Nothing recorded{% endfor %}"
+                          aria-label="View totals for {{ c.collector }}">
+                    {{ icon('eye', 'icon--sm') }}
+                  </button>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5">
+                {{ empty('No collectors assigned',
+                         'The City Hall Admin assigns tricycle collectors to your barangay.',
+                         'tricycle') }}
+              </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {# ---- Full entry log --------------------------------------------- #}
+    <section class="card" data-table-controller="collLog">
+      <div class="toolbar">
+        <h2 class="toolbar__title">Property Status</h2>
+        {{ search_input('Search owner', 'coll-search') }}
+        {{ filter_select('status', 'All Status', ['Collected', 'Pending', 'Not Collected']) }}
+      </div>
+
+      <div class="table-wrap">
+        <table class="table" id="collLog">
+          <caption class="sr-only">Every property and its status for this date</caption>
+          <thead>
+            <tr>
+              {{ th('Name', 'name') }}
+              {{ th('Purok', 'purok') }}
+              {{ th('Time') }}
+              {{ th('TRI No.') }}
+              {{ th('Status', 'status') }}
+              {{ th('Reason') }}
+              <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+              <tr data-name="{{ r.owner_name }}" data-purok="{{ r.purok }}"
+                  data-status="{{ r.status }}">
+                <td data-label="Name"><span class="strong">{{ r.owner_name }}</span></td>
+                <td data-label="Purok">{{ r.purok }}</td>
+                <td data-label="Time">{{ r.time or '—' }}</td>
+                <td data-label="TRI No.">
+                  <span class="mono">{{ r.entry.tricycle_code if r.entry else '—' }}</span>
+                </td>
+                <td data-label="Status">
+                  {{ status(r.status) }}
+                  {% if r.disputed %}<span class="badge badge--warning">Disputed</span>{% endif %}
+                </td>
+                <td data-label="Reason" class="text-sm muted">{{ r.reason or '—' }}</td>
+                <td class="table__actions">
+                  {% if r.entry %}
+                    <button type="button" class="btn btn--icon"
+                            data-modal-open="entry-detail"
+                            data-set-name="{{ r.owner_name }}"
+                            data-set-property="{{ r.type }}"
+                            data-set-purok="{{ r.purok }}"
+                            data-set-status="{{ r.status }}"
+                            data-set-collector="—"
+                            data-set-vehicle="{{ r.entry.tricycle_code or '—' }}"
+                            data-set-time="{{ r.time }}"
+                            data-set-reason="{{ r.reason or '—' }}"
+                            data-set-note="{{ r.note or 'No note recorded.' }}"
+                            data-set-load="{% for l in r.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
+                            data-set-proof="{{ url_for('collector.proof', relative=r.entry.image_proof_path) if r.entry.image_proof_path else '' }}"
+                            aria-label="View entry for {{ r.owner_name }}">
+                      {{ icon('eye', 'icon--sm') }}
+                    </button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div data-table-empty {% if rows %}hidden{% endif %}>
+        {{ empty('No properties registered',
+                 'Add properties in the Property List so collectors can record against them.',
+                 'home') }}
+      </div>
+
+      <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+    </section>
+  </div>
+
+  {# ---- Overall collected load ---------------------------------------- #}
+  <div class="stack">
+    <section class="card">
+      <div class="card__head">
+        <h2 class="card__title">Overall Collected Load</h2>
+        <span class="text-xs muted">{{ selected_date|date_display }}</span>
+      </div>
+      <div class="card__body">
+        {% if not totals.empty %}
+          <dl class="dlist">
+            {% for line in totals.lines | by_waste_type %}
+              <div class="dlist__row">
+                <dt class="dlist__key">{{ line.label }}</dt>
+                <dd class="dlist__val">{{ line.display }}</dd>
+              </div>
+            {% endfor %}
+            <div class="dlist__row dlist__row--total">
+              <dt>Total</dt><dd class="dlist__val">{{ totals.total }}</dd>
+            </div>
+          </dl>
+          <p class="field__hint" style="margin-top:var(--sp-3)">
+            {{ icon('info', 'icon--sm') }}
+            Computed from your collectors' entries. Sacks and kilos are totalled
+            separately — they are different units.
+          </p>
+        {% else %}
+          {{ empty('Nothing collected',
+                   'No collected loads were recorded on this date.', 'package') }}
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</section>
+
+{% include 'partials/entry_modal.html' %}
+
+{# ---- Collector totals dialog ------------------------------------------ #}
+<div class="modal" id="collector-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="collector-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <h2 id="collector-detail-title" data-fill="name">Collector totals</h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body stack">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Tricycle</span><span class="kv__val mono" data-fill="vehicle">—</span></div>
+        <div class="kv"><span class="kv__key">Purok Coverage</span><span class="kv__val" data-fill="puroks">—</span></div>
+        <div class="kv"><span class="kv__key">Assignment</span><span class="kv__val" data-fill="status">—</span></div>
+        <div class="kv"><span class="kv__key">Availability</span><span class="kv__val" data-fill="availability">—</span></div>
+        <div class="kv"><span class="kv__key">Collected</span><span class="kv__val" data-fill="collected">—</span></div>
+        <div class="kv"><span class="kv__key">Not Collected</span><span class="kv__val" data-fill="missed">—</span></div>
+      </div>
+      <div class="kv">
+        <span class="kv__key">Load breakdown</span>
+        <span class="kv__val text-sm" data-fill="load">—</span>
+      </div>
+      <div class="kv">
+        <span class="kv__key">Total</span>
+        <span class="kv__val strong" data-fill="total">—</span>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+
+{% block page %}
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Waste Schedule</h1>
+    <p class="page__sub">The city-wide segregation calendar published to every barangay.</p>
+  </div>
+  <div class="page__actions">
+    {% if editing %}
+      <a class="btn btn--ghost" href="{{ url_for('city.schedule') }}">Cancel</a>
+    {% else %}
+      <a class="btn btn--secondary" href="{{ url_for('city.schedule', edit=1) }}">
+        {{ icon('edit', 'icon--sm') }} Edit Schedule
+      </a>
+    {% endif %}
+  </div>
+</div>
+
+{% if editing %}
+  {# ---- Editor -------------------------------------------------------
+     The whole week saves as one submit: the schedule reads as a single
+     table, and a partial save would leave the days inconsistent with each
+     other. Editing a day also changes what collectors can record on that
+     day, since the entry form offers that day's detail list.            #}
+  <form method="post" data-validate novalidate>
+    {{ csrf_field() }}
+
+    <section class="card">
+      <div class="card__head">
+        <div>
+          <h2 class="card__title">Edit Weekly Schedule</h2>
+          <p class="text-sm muted">
+            Saving publishes to every barangay admin, collector, and the public viewer.
+          </p>
+        </div>
+      </div>
+
+      <div class="card__body stack">
+        {% for row in schedule %}
+          <fieldset class="card card--inset" style="border:0;padding:var(--sp-4);margin:0">
+            <legend class="field__label" style="padding:0 var(--sp-2)">
+              {{ row.day }}
+              {% if row.day == now.strftime('%A') %}
+                <span class="badge badge--info">Today</span>
+              {% endif %}
+            </legend>
+
+            <div class="form__grid form__grid--2">
+              <div class="field">
+                <label class="field__label" for="waste_type__{{ row.day }}">
+                  Waste Type<span class="field__req" aria-hidden="true">*</span>
+                </label>
+                <input class="field__input" id="waste_type__{{ row.day }}"
+                       name="waste_type__{{ row.day }}" required maxlength="120"
+                       list="common-waste-types" value="{{ row.waste_type }}"
+                       aria-describedby="waste_type__{{ row.day }}-hint">
+                <p class="field__hint" id="waste_type__{{ row.day }}-hint">
+                  Use "No Collection" for a rest day.
+                </p>
+              </div>
+
+              <div class="field">
+                <label class="field__label" for="short__{{ row.day }}">Short Label</label>
+                <input class="field__input" id="short__{{ row.day }}"
+                       name="short__{{ row.day }}" maxlength="60"
+                       value="{{ row.short }}" placeholder="Biodegradable + Residual">
+              </div>
+            </div>
+
+            <div class="form__grid form__grid--2">
+              <div class="field">
+                <label class="field__label" for="details__{{ row.day }}">
+                  Details / Examples of Waste
+                </label>
+                <textarea class="field__textarea" id="details__{{ row.day }}"
+                          name="details__{{ row.day }}" rows="4"
+                          aria-describedby="details__{{ row.day }}-hint"
+                          placeholder="Kitchen Waste&#10;Yard Waste">{{ row.details|join('\n') }}</textarea>
+                <p class="field__hint" id="details__{{ row.day }}-hint">
+                  One per line. These are the waste types a collector can record
+                  on this day. Leave empty for a no-collection day.
+                </p>
+              </div>
+
+              <div class="field">
+                <label class="field__label" for="tone__{{ row.day }}">Colour</label>
+                <select class="field__select" id="tone__{{ row.day }}" name="tone__{{ row.day }}">
+                  {% for tone in tones %}
+                    <option value="{{ tone }}" {% if row.tone == tone %}selected{% endif %}>
+                      {{ tone|capitalize }}
+                    </option>
+                  {% endfor %}
+                </select>
+                <p class="field__hint">Used for the chip and calendar colour.</p>
+              </div>
+            </div>
+          </fieldset>
+        {% endfor %}
+      </div>
+
+      <div class="card__foot row row--end">
+        <a class="btn btn--ghost" href="{{ url_for('city.schedule') }}">Cancel</a>
+        <button type="submit" class="btn btn--primary">
+          {{ icon('check', 'icon--sm') }} Save Schedule
+        </button>
+      </div>
+    </section>
+  </form>
+
+  <datalist id="common-waste-types">
+    {% for t in common_types %}<option value="{{ t }}"></option>{% endfor %}
+  </datalist>
+
+{% else %}
+  {% include 'partials/schedule_table.html' %}
+{% endif %}
+
+{% endblock %}

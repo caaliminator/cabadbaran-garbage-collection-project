@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% from 'partials/icons.html' import icon %}
+
+{# ===========================================================================
+   Shell for the four public pages.
+
+   Bottom tabs rather than a menu: this is used one-handed on a phone at the
+   kerb, and the bottom of the screen is the part a thumb reaches. They
+   collapse to a normal top row from 720px up, where a bottom bar would look
+   out of place.
+   =========================================================================== #}
+
+{% block body %}
+
+<header class="public-header">
+  <a class="public-header__brand" href="{{ url_for('public.viewer') }}">
+    <img class="public-header__seal" src="{{ url_for('static', filename='img/logo.jpg') }}"
+         alt="Official seal of the City of Cabadbaran" width="42" height="42">
+    <span>
+      <span class="public-header__city">{{ city_name }}</span>
+      <span class="public-header__sub">{{ page_title }}</span>
+    </span>
+  </a>
+
+  <div class="public-header__actions">
+    <button type="button" class="btn btn--icon theme-toggle" data-theme-toggle
+            aria-pressed="false" aria-label="Switch to dark theme">
+      {{ icon('sun', 'icon--sun') }}{{ icon('moon', 'icon--moon') }}
+    </button>
+    <a class="btn btn--secondary btn--sm" href="{{ url_for('auth.login') }}">
+      {{ icon('logout', 'icon--sm') }}
+      <span class="sr-only">Go to </span>Staff login
+    </a>
+  </div>
+</header>
+
+{# Tabs are <a> elements, not buttons: each one is a real page a resident can
+   bookmark or share. #}
+<nav class="tabbar" aria-label="Public viewer sections">
+  {% for endpoint, label, ico in tabs %}
+    <a class="tabbar__link" href="{{ url_for(endpoint) }}"
+       {% if active_tab == endpoint %}aria-current="page"{% endif %}>
+      {{ icon(ico, 'icon--sm') }}
+      <span>{{ label }}</span>
+    </a>
+  {% endfor %}
+</nav>
+
+<main class="public-main public-main--single" id="main" tabindex="-1">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="stack" style="margin-bottom:var(--sp-4)">
+        {% for category, message in messages %}
+          <div class="notice {% if category == 'success' %}notice--info{% elif category == 'danger' %}notice--danger{% endif %}"
+               role="status">
+            {{ icon('info' if category != 'danger' else 'alert', 'icon--sm') }}
+            <div><p>{{ message }}</p></div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block public %}{% endblock %}
+</main>
+
+<footer class="public-foot">
+  <p>© {{ now.year }} City Government of Cabadbaran · Solid Waste Management Office</p>
+</footer>
+
+{% endblock %}

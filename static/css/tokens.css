@@ -1,0 +1,280 @@
+/* ==========================================================================
+   DESIGN TOKENS
+   Palette sampled from the City of Cabadbaran official seal (logo.jpg):
+     - Seal ring blue   #0E6BA8  -> primary
+     - Relief map green #2E9E52  -> secondary
+     - Rope gold        #E0AE3A  -> accent
+     - Seal stars red   #CE3F3F  -> danger
+   Every text/background pairing below meets WCAG 2.1 AA (>= 4.5:1).
+   ========================================================================== */
+
+:root {
+  /* ---- Brand: primary (seal blue) ---- */
+  --blue-50:  #eef6fc;
+  --blue-100: #d6e9f7;
+  --blue-200: #aed3ee;
+  --blue-300: #7bb6e0;
+  --blue-400: #4494cf;
+  --blue-500: #1a7cb8;
+  --blue-600: #0e6ba8;   /* primary */
+  --blue-700: #0b5484;
+  --blue-800: #0a4066;
+  --blue-900: #0b2c45;
+  --blue-950: #071d2e;   /* sidebar rail */
+
+  /* ---- Brand: secondary (map green) ---- */
+  --green-50:  #ecf8f0;
+  --green-100: #d1efdc;
+  --green-200: #a5dfba;
+  --green-300: #6cc78e;
+  --green-500: #3cb166;
+  --green-600: #2e9e52;  /* secondary */
+  --green-700: #217a3f;
+  --green-800: #1a5f32;
+
+  /* ---- Brand: accent (rope gold) ---- */
+  --gold-50:  #fdf6e7;
+  --gold-100: #faebc7;
+  --gold-200: #f3d78d;
+  --gold-500: #e0ae3a;   /* accent */
+  --gold-600: #b8871f;
+  --gold-700: #8d6614;
+
+  /* ---- Brand: danger (seal stars) ---- */
+  --red-50:  #fdeded;
+  --red-100: #fad7d7;
+  --red-200: #f3b0b0;
+  --red-500: #ce3f3f;
+  --red-600: #b83232;
+  --red-700: #932424;
+
+  /* ---- Support hue for the 4th map zone ---- */
+  --violet-50:  #f2effc;
+  --violet-100: #e2dbf8;
+  --violet-500: #6d4fc4;
+  --violet-600: #5a3daa;
+  --violet-700: #462f85;
+
+  /* ---- Neutrals ---- */
+  --n-0:   #ffffff;
+  --n-25:  #fbfcfd;
+  --n-50:  #f5f7fa;
+  --n-100: #eceff4;
+  --n-200: #dde2ea;
+  --n-300: #c3cbd8;
+  --n-400: #97a2b3;
+  --n-500: #6b7686;
+  --n-600: #515b69;
+  --n-700: #3b444f;
+  --n-800: #272e37;
+  --n-900: #171c22;
+  --n-950: #0d1117;
+
+  /* ---- Semantic surfaces (light theme) ---- */
+  --bg-body:      var(--n-50);
+  --bg-surface:   var(--n-0);
+  --bg-raised:    var(--n-0);
+  --bg-subtle:    var(--n-50);
+  --bg-inset:     var(--n-100);
+  --bg-hover:     var(--n-50);
+  --bg-rail:      var(--blue-950);
+  --bg-rail-hover: rgba(255, 255, 255, .07);
+  --bg-scrim:     rgba(11, 44, 69, .55);
+
+  /* ---- Semantic text ---- */
+  --fg-strong:  var(--n-900);
+  --fg-default: var(--n-800);
+  --fg-muted:   var(--n-500);
+  --fg-subtle:  var(--n-400);
+  --fg-invert:  var(--n-0);
+  --fg-brand:   var(--blue-700);
+  --fg-on-rail: rgba(255, 255, 255, .78);
+  --fg-on-rail-strong: #ffffff;
+  --fg-on-rail-muted:  rgba(255, 255, 255, .5);
+
+  /* ---- Borders ---- */
+  --border:        var(--n-200);
+  --border-strong: var(--n-300);
+  --border-subtle: var(--n-100);
+  --border-rail:   rgba(255, 255, 255, .1);
+
+  /* ---- Interactive ---- */
+  --accent:       var(--blue-600);
+  --accent-hover: var(--blue-700);
+  --accent-soft:  var(--blue-50);
+  --accent-ring:  rgba(14, 107, 168, .38);
+  --focus-ring:   0 0 0 3px var(--accent-ring);
+
+  /* ---- Status tones: [text, background, border] ---- */
+  --tone-success-fg: var(--green-800);
+  --tone-success-bg: var(--green-50);
+  --tone-success-bd: var(--green-200);
+  --tone-warning-fg: var(--gold-700);
+  --tone-warning-bg: var(--gold-50);
+  --tone-warning-bd: var(--gold-200);
+  --tone-danger-fg:  var(--red-700);
+  --tone-danger-bg:  var(--red-50);
+  --tone-danger-bd:  var(--red-200);
+  --tone-info-fg:    var(--blue-700);
+  --tone-info-bg:    var(--blue-50);
+  --tone-info-bd:    var(--blue-200);
+  --tone-muted-fg:   var(--n-600);
+  --tone-muted-bg:   var(--n-100);
+  --tone-muted-bd:   var(--n-200);
+  --tone-violet-fg:  var(--violet-700);
+  --tone-violet-bg:  var(--violet-50);
+  --tone-violet-bd:  var(--violet-100);
+
+  /* ---- Typography ----
+     System-native stack: zero network requests, instant first paint,
+     and a familiar UI voice on every platform. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system,
+               BlinkMacSystemFont, "Inter", system-ui, Roboto, "Helvetica Neue",
+               Arial, "Noto Sans", sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", -apple-system,
+               BlinkMacSystemFont, "Inter", system-ui, Roboto, sans-serif;
+  --font-mono: "Cascadia Code", ui-monospace, SFMono-Regular, "SF Mono",
+               Consolas, "Liberation Mono", monospace;
+
+  /* Fluid type scale -- 1.200 minor third, clamped for small screens */
+  --text-2xs: .6875rem;  /* 11px  eyebrow / table meta */
+  --text-xs:  .75rem;    /* 12px  labels, badges */
+  --text-sm:  .8125rem;  /* 13px  table body, secondary */
+  --text-md:  .875rem;   /* 14px  base UI */
+  --text-base: .9375rem; /* 15px  body copy */
+  --text-lg:  1.0625rem; /* 17px  card titles */
+  --text-xl:  clamp(1.125rem, .95rem + .6vw, 1.3125rem);
+  --text-2xl: clamp(1.375rem, 1.1rem + .95vw, 1.75rem);
+  --text-3xl: clamp(1.625rem, 1.25rem + 1.5vw, 2.25rem);
+  --text-stat: clamp(1.5rem, 1.2rem + 1.1vw, 1.875rem);
+
+  --leading-tight: 1.2;
+  --leading-snug:  1.4;
+  --leading-normal: 1.6;
+  --tracking-tight: -.018em;
+  --tracking-wide:  .06em;
+
+  /* ---- Space scale (4px base) ---- */
+  --sp-1: .25rem;   --sp-2: .5rem;    --sp-3: .75rem;
+  --sp-4: 1rem;     --sp-5: 1.25rem;  --sp-6: 1.5rem;
+  --sp-7: 1.75rem;  --sp-8: 2rem;     --sp-10: 2.5rem;
+  --sp-12: 3rem;    --sp-16: 4rem;
+
+  /* ---- Radii ---- */
+  --r-xs: 4px;   --r-sm: 6px;   --r-md: 10px;
+  --r-lg: 14px;  --r-xl: 18px;  --r-full: 999px;
+
+  /* ---- Elevation ---- */
+  --shadow-xs: 0 1px 2px rgba(13, 22, 34, .06);
+  --shadow-sm: 0 1px 3px rgba(13, 22, 34, .07), 0 1px 2px rgba(13, 22, 34, .04);
+  --shadow-md: 0 4px 12px rgba(13, 22, 34, .08), 0 1px 3px rgba(13, 22, 34, .04);
+  --shadow-lg: 0 12px 28px rgba(13, 22, 34, .12), 0 4px 8px rgba(13, 22, 34, .05);
+  --shadow-xl: 0 24px 48px rgba(13, 22, 34, .18);
+
+  /* ---- Layout ---- */
+  --rail-w: 264px;
+  --rail-w-collapsed: 76px;
+  --topbar-h: 68px;
+  --content-max: 1600px;
+
+  /* ---- Motion ---- */
+  --ease: cubic-bezier(.4, 0, .2, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur-fast: .12s;
+  --dur: .2s;
+  --dur-slow: .34s;
+
+  --z-rail: 60;
+  --z-topbar: 50;
+  --z-scrim: 55;
+  --z-pop: 70;
+  --z-toast: 90;
+}
+
+/* ==========================================================================
+   DARK THEME
+   Applies on system preference and can be pinned via [data-theme] which
+   always wins over the media query.
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-body:    #0c1219;
+    --bg-surface: #131b24;
+    --bg-raised:  #18222d;
+    --bg-subtle:  #101923;
+    --bg-inset:   #1c2733;
+    --bg-hover:   #1b2531;
+    --bg-rail:    #080f16;
+    --bg-rail-hover: rgba(255, 255, 255, .06);
+    --bg-scrim:   rgba(3, 8, 13, .7);
+
+    --fg-strong:  #f1f5f9;
+    --fg-default: #dde5ee;
+    --fg-muted:   #93a1b2;
+    --fg-subtle:  #6f7d8f;
+    --fg-brand:   var(--blue-300);
+
+    --border:        #253140;
+    --border-strong: #33465a;
+    --border-subtle: #1c2733;
+
+    --accent:       var(--blue-400);
+    --accent-hover: var(--blue-300);
+    --accent-soft:  rgba(68, 148, 207, .14);
+    --accent-ring:  rgba(68, 148, 207, .45);
+
+    --tone-success-fg: #7fd3a1; --tone-success-bg: rgba(46, 158, 82, .14);  --tone-success-bd: rgba(46, 158, 82, .32);
+    --tone-warning-fg: #eec468; --tone-warning-bg: rgba(224, 174, 58, .14); --tone-warning-bd: rgba(224, 174, 58, .32);
+    --tone-danger-fg:  #f09393; --tone-danger-bg:  rgba(206, 63, 63, .15);  --tone-danger-bd:  rgba(206, 63, 63, .34);
+    --tone-info-fg:    #8cc4ea; --tone-info-bg:    rgba(26, 124, 184, .15); --tone-info-bd:    rgba(26, 124, 184, .34);
+    --tone-muted-fg:   #9aa8b8; --tone-muted-bg:   rgba(255, 255, 255, .06); --tone-muted-bd:  rgba(255, 255, 255, .12);
+    --tone-violet-fg:  #b5a3ea; --tone-violet-bg:  rgba(109, 79, 196, .16); --tone-violet-bd:  rgba(109, 79, 196, .34);
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, .45);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, .5);
+    --shadow-lg: 0 14px 32px rgba(0, 0, 0, .58);
+    --shadow-xl: 0 24px 52px rgba(0, 0, 0, .66);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg-body:    #0c1219;
+  --bg-surface: #131b24;
+  --bg-raised:  #18222d;
+  --bg-subtle:  #101923;
+  --bg-inset:   #1c2733;
+  --bg-hover:   #1b2531;
+  --bg-rail:    #080f16;
+  --bg-rail-hover: rgba(255, 255, 255, .06);
+  --bg-scrim:   rgba(3, 8, 13, .7);
+
+  --fg-strong:  #f1f5f9;
+  --fg-default: #dde5ee;
+  --fg-muted:   #93a1b2;
+  --fg-subtle:  #6f7d8f;
+  --fg-brand:   var(--blue-300);
+
+  --border:        #253140;
+  --border-strong: #33465a;
+  --border-subtle: #1c2733;
+
+  --accent:       var(--blue-400);
+  --accent-hover: var(--blue-300);
+  --accent-soft:  rgba(68, 148, 207, .14);
+  --accent-ring:  rgba(68, 148, 207, .45);
+
+  --tone-success-fg: #7fd3a1; --tone-success-bg: rgba(46, 158, 82, .14);  --tone-success-bd: rgba(46, 158, 82, .32);
+  --tone-warning-fg: #eec468; --tone-warning-bg: rgba(224, 174, 58, .14); --tone-warning-bd: rgba(224, 174, 58, .32);
+  --tone-danger-fg:  #f09393; --tone-danger-bg:  rgba(206, 63, 63, .15);  --tone-danger-bd:  rgba(206, 63, 63, .34);
+  --tone-info-fg:    #8cc4ea; --tone-info-bg:    rgba(26, 124, 184, .15); --tone-info-bd:    rgba(26, 124, 184, .34);
+  --tone-muted-fg:   #9aa8b8; --tone-muted-bg:   rgba(255, 255, 255, .06); --tone-muted-bd:  rgba(255, 255, 255, .12);
+  --tone-violet-fg:  #b5a3ea; --tone-violet-bg:  rgba(109, 79, 196, .16); --tone-violet-bd:  rgba(109, 79, 196, .34);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .45);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, .5);
+  --shadow-lg: 0 14px 32px rgba(0, 0, 0, .58);
+  --shadow-xl: 0 24px 52px rgba(0, 0, 0, .66);
+}

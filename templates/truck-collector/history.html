@@ -1,0 +1,121 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">History</h1>
+    <p class="page__sub">Your MRF pickups and landfill deliveries.</p>
+  </div>
+</div>
+
+<form class="card" method="get" style="margin-bottom:var(--sp-5)">
+  <div class="card__body row" style="gap:var(--sp-3);align-items:flex-end;flex-wrap:wrap">
+    <div class="field" style="flex:1;min-width:200px">
+      <label class="field__label" for="search">Search barangay</label>
+      <input class="field__input" type="search" id="search" name="search"
+             value="{{ search }}" placeholder="Barangay name">
+    </div>
+    <div class="field">
+      <label class="field__label" for="date">Date</label>
+      <input class="field__input" type="date" id="date" name="date" value="{{ selected_date }}">
+    </div>
+    <div class="row" style="gap:var(--sp-2)">
+      <button type="submit" class="btn btn--primary">{{ icon('search', 'icon--sm') }} Filter</button>
+      <a class="btn btn--ghost" href="{{ url_for('collector.truck_history') }}">Clear</a>
+    </div>
+  </div>
+</form>
+
+{# ---- MRF pickups ------------------------------------------------------ #}
+<section class="card" style="margin-bottom:var(--sp-5)">
+  <div class="card__head">
+    <h2 class="card__title">MRF Pickup History</h2>
+    <span class="badge badge--info">{{ mrf_rows|length }}</span>
+  </div>
+
+  <div>
+    {% for r in mrf_rows %}
+      <article class="entry">
+        <div style="min-width:0">
+          <h3 class="entry__title">{{ r.mrf_name }}</h3>
+          <p class="entry__sub">Source schedule: {{ r.source_schedule_day }}</p>
+          <p class="entry__sub">Waste type: {{ r.waste_type or '—' }}</p>
+
+          {% if r.lines %}
+            <div class="entry__load">
+              {% for line in r.lines | by_waste_type %}
+                <div class="entry__load-row">
+                  <span>{{ line.label }}</span><span>{{ line.display }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% elif r.reason %}
+            <p class="entry__sub"><span class="badge badge--danger">{{ r.reason }}</span></p>
+          {% endif %}
+
+          {% if r.note %}<p class="entry__sub muted">{{ r.note }}</p>{% endif %}
+        </div>
+
+        <div class="entry__meta">
+          {{ status(r.status) }}
+          <span>{{ r.date_display }}</span>
+          <span>{{ r.time_display }}</span>
+          <span class="mono">{{ r.truck_code or '—' }}</span>
+        </div>
+      </article>
+    {% else %}
+      {{ empty('No pickups yet', 'Your recorded MRF pickups will appear here.', 'recycle') }}
+    {% endfor %}
+  </div>
+</section>
+
+{# ---- Landfill deliveries ---------------------------------------------- #}
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Final Disposal Delivery History</h2>
+    <span class="badge badge--info">{{ disposal_rows|length }}</span>
+  </div>
+
+  <div>
+    {% for r in disposal_rows %}
+      <article class="entry">
+        <div style="min-width:0">
+          <h3 class="entry__title">{{ r.truck_code }}</h3>
+          <p class="entry__sub">{{ r.batch }}</p>
+
+          {% if r.lines %}
+            <div class="entry__load">
+              {% for line in r.lines | by_waste_type %}
+                <div class="entry__load-row">
+                  <span>{{ line.label }}</span><span>{{ line.display }}</span>
+                </div>
+              {% endfor %}
+              <div class="entry__load-row strong">
+                <span>Total</span><span>{{ r.total }}</span>
+              </div>
+            </div>
+          {% endif %}
+
+          <p class="entry__sub">
+            MRFs: {{ r.barangays|join(', ') if r.barangays else 'None recorded' }}
+          </p>
+        </div>
+
+        <div class="entry__meta">
+          <span class="badge badge--success"><span class="dot"></span>Delivered to Landfill</span>
+          <span>{{ r.date_display }}</span>
+          <span>{{ r.time_display }}</span>
+          <span class="mono">{{ r.truck_code }}</span>
+        </div>
+      </article>
+    {% else %}
+      {{ empty('No deliveries yet',
+               'Loads you deliver to the landfill will be listed here.', 'truck') }}
+    {% endfor %}
+  </div>
+</section>
+
+{% endblock %}

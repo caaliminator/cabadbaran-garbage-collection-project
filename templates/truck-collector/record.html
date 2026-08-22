@@ -1,0 +1,228 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status %}
+
+{% block page %}
+
+{# ===========================================================================
+   MRF pickup entry.
+
+   The operator enters no quantities: the load shown here is computed from that
+   barangay's collection entries since its last pickup, so the figure the truck
+   carries is the figure the tricycles brought in.
+
+   The mockup's Collected frame has no SAVE button (OPEN ITEM 5). It has one
+   here -- a consequential record with no submit is a mockup omission, not a
+   design. There is deliberately no image proof: a missed MRF pickup is
+   verified by the barangay, unlike a disputed household refusal.
+   =========================================================================== #}
+
+<div class="page__head">
+  <div>
+    <a class="card__link" href="{{ url_for('collector.truck_route') }}">
+      <span style="display:flex;transform:rotate(180deg)">{{ icon('arrow-right', 'icon--sm') }}</span>
+      Back to MRF list
+    </a>
+    <h1 class="page__title" style="margin-top:var(--sp-2)">{{ card.mrf_name }}</h1>
+  </div>
+  <div class="page__actions">{{ status(card.status) }}</div>
+</div>
+
+{% if card.delivered %}
+  <div class="notice" role="status">
+    {{ icon('alert', 'icon--sm') }}
+    <div>
+      <p class="strong">This pickup has already been delivered</p>
+      <p class="text-sm">
+        Its load is part of a completed landfill delivery and can no longer be
+        changed.
+      </p>
+    </div>
+  </div>
+{% elif card.entry %}
+  <div class="notice notice--info" role="status">
+    {{ icon('info', 'icon--sm') }}
+    <div>
+      <p class="strong">You already recorded this MRF today</p>
+      <p class="text-sm">Saving again replaces your entry.</p>
+    </div>
+  </div>
+{% endif %}
+
+<form method="post" class="stack" data-validate novalidate
+      {% if card.delivered %}inert{% endif %}>
+  {{ csrf_field() }}
+
+  <div class="split">
+
+    {# ---- Left: identity, result, capture ----------------------------- #}
+    <div class="stack">
+      <section class="card">
+        <div class="card__head"><h2 class="card__title">Selected Barangay</h2></div>
+        <div class="card__body stack">
+          <div class="record-id">
+            <div style="min-width:0">
+              <p class="record-id__name">{{ card.barangay }}</p>
+              <p class="record-id__meta">
+                <span>Source schedule: {{ card.source_schedule_day }}</span><span>·</span>
+                <span>{{ card.waste_type }}</span>
+              </p>
+              {% if card.covered_dates %}
+                <p class="text-sm muted">
+                  Covers collections from
+                  {{ card.covered_dates[0]|date_display }}
+                  {%- if card.covered_dates|length > 1 %}
+                    to {{ card.covered_dates[-1]|date_display }}
+                  {%- endif %}.
+                </p>
+              {% endif %}
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <fieldset style="border:0;padding:0;margin:0" data-reveal-group="record">
+            <legend class="field__label" style="margin-bottom:var(--sp-2)">
+              Pickup result<span class="field__req" aria-hidden="true">*</span>
+              <span class="sr-only">(required)</span>
+            </legend>
+            <div class="status-switch">
+              <label class="status-switch__opt status-switch__opt--yes">
+                <input type="radio" name="status" value="Collected from MRF"
+                       {% if card.status != 'Not Collected' %}checked{% endif %}>
+                {{ icon('check', 'icon--sm') }}<span>Collect</span>
+              </label>
+              <label class="status-switch__opt status-switch__opt--no">
+                <input type="radio" name="status" value="Not Collected"
+                       {% if card.status == 'Not Collected' %}checked{% endif %}>
+                {{ icon('x', 'icon--sm') }}<span>Not Collected</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head"><h2 class="card__title">Capture</h2></div>
+        <div class="card__body gps">
+          <div class="gps__row">
+            <span class="gps__label">{{ icon('map-pin', 'icon--sm') }} GPS Location</span>
+            <span class="gps__value" data-geo-output>
+              {%- if card.entry and card.entry.gps -%}
+                {{ card.entry.gps.lat }}, {{ card.entry.gps.lng }}
+              {%- else -%}Not captured{%- endif -%}
+            </span>
+          </div>
+          <div class="gps__row">
+            <span class="gps__label">{{ icon('clock', 'icon--sm') }} Timestamp</span>
+            <span class="gps__value" data-live-timestamp>—</span>
+          </div>
+          <div class="gps__row">
+            <span class="gps__label">{{ icon('truck', 'icon--sm') }} Truck</span>
+            <span class="gps__value">{{ user.vehicle or 'Not assigned' }}</span>
+          </div>
+
+          <input type="hidden" name="gps" data-geo-input
+                 value="{% if card.entry and card.entry.gps %}{{ card.entry.gps.lat }},{{ card.entry.gps.lng }}{% endif %}">
+
+          <button type="button" class="btn btn--secondary btn--block" data-geo-capture>
+            {{ icon('map-pin', 'icon--sm') }} Capture current location
+          </button>
+          <p class="field__hint" data-geo-status role="status"></p>
+        </div>
+      </section>
+    </div>
+
+    {# ---- Right: the load, and the not-collected panel ---------------- #}
+    <div class="stack">
+      <section class="card record-panel" data-reveal-group="record"
+               data-reveal-when="Collected from MRF">
+        <div class="card__head">
+          <h2 class="card__title">Load in this MRF</h2>
+          <span class="text-xs muted">Computed from the barangay's collections</span>
+        </div>
+        <div class="card__body">
+          {% if card.load.lines %}
+            <dl class="dlist">
+              {% for line in card.load.lines | by_waste_type %}
+                <div class="dlist__row">
+                  <dt class="dlist__key">{{ line.label }}</dt>
+                  <dd class="dlist__val">{{ line.display }}</dd>
+                </div>
+              {% endfor %}
+              <div class="dlist__row dlist__row--total">
+                <dt>Total</dt>
+                <dd class="dlist__val">{{ card.load.total }}</dd>
+              </div>
+            </dl>
+            <p class="field__hint" style="margin-top:var(--sp-3)">
+              {{ icon('info', 'icon--sm') }}
+              You do not enter quantities — this load comes from what the
+              tricycle collectors recorded for {{ card.barangay }}.
+            </p>
+          {% else %}
+            <p class="text-sm muted">
+              No collections have been recorded into this MRF since its last
+              pickup, so there is nothing to collect. You can still record the
+              visit as Not Collected if you went and found nothing.
+            </p>
+          {% endif %}
+
+          <div class="field" style="margin-top:var(--sp-4)">
+            <label class="field__label" for="note_collected">Note <span class="muted">(optional)</span></label>
+            <textarea class="field__textarea" id="note_collected" name="note" maxlength="500"
+                      placeholder="Anything worth flagging about this pickup…">{% if card.entry and card.entry.status == 'Collected from MRF' %}{{ card.entry.note }}{% endif %}</textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="card record-panel" data-reveal-group="record"
+               data-reveal-when="Not Collected" hidden>
+        <div class="card__head"><h2 class="card__title">Reason for Not Collected</h2></div>
+        <div class="card__body stack">
+          <div class="notice notice--warning" role="status" style="margin:0">
+            {{ icon('alert', 'icon--sm') }}
+            <div>
+              <p class="strong">This opens a carry-over</p>
+              <p class="text-sm">
+                The load stays in the MRF and the City Hall Admin is asked to
+                reassign or reschedule the pickup.
+              </p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="reason">
+              Select reason<span class="field__req" aria-hidden="true">*</span>
+              <span class="sr-only">(required)</span>
+            </label>
+            <select class="field__select" id="reason" name="reason">
+              <option value="">Select reason…</option>
+              {% for r in reasons %}
+                <option value="{{ r }}"
+                        {% if card.reason == r %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="note_missed">Note <span class="muted">(optional)</span></label>
+            <textarea class="field__textarea" id="note_missed" name="note" maxlength="500"
+                      placeholder="Explain what you found at the MRF…">{% if card.entry and card.entry.status == 'Not Collected' %}{{ card.entry.note }}{% endif %}</textarea>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  {% if not card.delivered %}
+    <div class="actionbar">
+      <a class="btn btn--secondary" href="{{ url_for('collector.truck_route') }}">Cancel</a>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('check', 'icon--sm') }} {{ 'Update record' if card.entry else 'Save record' }}
+      </button>
+    </div>
+  {% endif %}
+</form>
+
+{% endblock %}

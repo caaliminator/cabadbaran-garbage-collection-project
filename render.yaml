@@ -1,0 +1,85 @@
+# Render blueprint for the Cabadbaran City Garbage Collection Tracking System.
+#
+# Configured for a **capstone demo on the free plan**: no persistent disk, and
+# a complete demo dataset rebuilt on every boot so a wipe costs nothing.
+#
+# For real use, see the "Running it for real" section of docs/DEPLOYMENT.md --
+# it is a plan change and two extra settings, not a code change.
+
+services:
+  - type: web
+    name: cabadbaran-gcts
+    runtime: python
+    plan: free
+    region: singapore      # closest Render region to the Philippines
+
+    buildCommand: pip install -r requirements.txt
+
+    # `seed.py --demo` runs on every boot. It is idempotent, so it does nothing
+    # when the data is already there -- but on the free plan the filesystem is
+    # wiped on each restart, so in practice it rebuilds the whole demo: the 31
+    # barangays, the vehicles, the schedule, four working accounts, eight
+    # properties, and the collector assignments.
+    #
+    # That is why a wipe does not matter here. The logins stay the same because
+    # the passwords come from the environment, not from a generator.
+    #
+    # --workers 1 is REQUIRED, not a performance setting. Socket.IO rooms live
+    # in process memory; with two workers a browser connected to one would
+    # never receive events emitted by the other, and the live map would freeze
+    # for some users in a way that looks like a network fault.
+    # The two tools after seed.py matter just as much on this plan.
+    # seed.py writes the geo files as empty stubs, so without
+    # make_demo_geo.py every map boots blank; and without
+    # make_demo_day.py every counter boots at 0. Both are idempotent,
+    # and both are replaced the moment real data arrives.
+    startCommand: >
+      python seed.py --demo &&
+      python tools/make_demo_geo.py &&
+      python tools/make_demo_day.py --days 5 &&
+      gunicorn app:app
+      --worker-class gthread
+      --workers 1
+      --threads 8
+      --timeout 120
+      --bind 0.0.0.0:$PORT
+      --access-logfile -
+
+    healthCheckPath: /login
+
+    envVars:
+      - key: FLASK_ENV
+        value: production         # secure cookies, no debug, no auto-reload
+
+      - key: SECRET_KEY
+        generateValue: true       # Render generates it once and keeps it
+
+      - key: PYTHON_VERSION
+        value: "3.13.4"
+
+      # Set both of these in the Render dashboard before the first deploy.
+      # They are what make the demo logins survive a restart -- without them
+      # seed.py generates new passwords each time the instance resets, and you
+      # would be locked out of your own demo.
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_DEMO_PASSWORD
+        sync: false
+
+      - key: SEED_ADMIN_USERNAME
+        value: city_admin
+
+    # ---- For real use, add these ------------------------------------------
+    # Change `plan: free` to `plan: starter`, then uncomment:
+    #
+    # disk:
+    #   name: gcts-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    #
+    # and add the env var:
+    #   - key: DATA_ROOT
+    #     value: /var/data
+    #
+    # and drop `--demo` from the start command, so real records are not mixed
+    # with sample ones.

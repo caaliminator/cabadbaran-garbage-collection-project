@@ -1,0 +1,71 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat %}
+
+{% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Live Tracking</h1>
+    <p class="page__sub row row--tight">
+      <span class="dot dot--pulse" style="color:var(--green-600)"></span>
+      Positions refresh automatically while collection is in progress.
+    </p>
+  </div>
+  <div class="page__actions">
+    <button type="button" class="btn btn--secondary">
+      {{ icon('refresh', 'icon--sm') }} Refresh
+    </button>
+  </div>
+</div>
+
+<section class="split split--wide">
+  <div class="stack">
+
+    <div class="grid grid--2">
+      {# Live counts, not the mockup's sample figures. `counts` was already
+         being passed to this template and simply never read. #}
+      {{ stat('Active Trucks', counts.trucks, 'Units on route', 'truck', 'warning') }}
+      {{ stat('Active Tricycles', counts.tricycles, 'Units on route', 'tricycle', 'success') }}
+    </div>
+
+    <div class="card">
+      <div class="card__body card__body--flush" style="padding:var(--sp-3)">
+        {% with map_title = 'Citywide Live Tracking',
+              show_barangay_filter = true,
+              map_barangays = map_barangays,
+              map_size = 'tall' %}
+        {% include 'partials/live_map.html' %}
+      {% endwith %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head">
+      <h2 class="card__title">Live Alerts</h2>
+      <span class="badge badge--info">{{ unread_count }} new</span>
+    </div>
+
+    <div class="card__body card__body--flush scroll-y" role="log" aria-live="polite"
+         aria-label="Live collection alerts">
+      {% for a in alerts %}
+        <div class="pop__item {% if a.unread %}pop__item--unread{% endif %}">
+          <span class="stat__icon stat__icon--{{ 'danger' if a.tone == 'danger' else 'warning' if a.tone == 'warning' else 'info' }}"
+                style="width:34px;height:34px;border-radius:10px" aria-hidden="true">
+            {{ icon('truck' if 'Truck' in a.title else 'alert', 'icon--sm') }}
+          </span>
+          <div style="flex:1;min-width:0">
+            <p class="alert-item__title">{{ a.title }}</p>
+            <p class="alert-item__body">{{ a.body }}</p>
+          </div>
+          <time class="alert-item__time">{{ a.time }}</time>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% endblock %}

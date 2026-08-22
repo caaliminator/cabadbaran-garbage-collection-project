@@ -1,0 +1,156 @@
+{% from 'partials/icons.html' import icon %}
+
+{# ===========================================================================
+   Collector profile + password change. Shared by both collector portals.
+   Expects: profile, kind
+   =========================================================================== #}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Profile</h1>
+    <p class="page__sub">Your assignment details and sign-in credentials.</p>
+  </div>
+</div>
+
+<section class="split">
+
+  {# ---- Profile information -------------------------------------------- #}
+  <div class="card">
+    <div class="card__head"><h2 class="card__title">Profile Information</h2></div>
+
+    <div class="card__body stack">
+      <div class="profile__hero">
+        <span class="avatar avatar--lg" aria-hidden="true">{{ profile.name|initials }}</span>
+        <div class="profile__id">
+          <p class="profile__name">{{ profile.name }}</p>
+          <p class="profile__role mono">{{ profile.username }}</p>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <dl class="info-list">
+        <div class="info-list__row">
+          <dt class="info-list__key">Role</dt>
+          <dd class="info-list__val">{{ profile.role_label }}</dd>
+        </div>
+
+        {% if kind == 'tricycle' %}
+          <div class="info-list__row">
+            <dt class="info-list__key">Assigned barangay</dt>
+            <dd class="info-list__val">{{ profile.barangay or 'Not assigned' }}</dd>
+          </div>
+          <div class="info-list__row">
+            <dt class="info-list__key">Purok</dt>
+            <dd class="info-list__val">{{ profile.puroks|join(', ') if profile.puroks else (profile.purok or 'Not assigned') }}</dd>
+          </div>
+          <div class="info-list__row">
+            <dt class="info-list__key">Assigned tricycle</dt>
+            <dd class="info-list__val mono">{{ profile.vehicle or 'Not assigned' }}</dd>
+          </div>
+        {% else %}
+          <div class="info-list__row">
+            <dt class="info-list__key">Assigned barangays</dt>
+            <dd class="info-list__val">
+              {% for b in profile.barangays %}<span>{{ b }}</span>{% endfor %}
+            </dd>
+          </div>
+          <div class="info-list__row">
+            <dt class="info-list__key">Assigned truck</dt>
+            <dd class="info-list__val mono">{{ profile.vehicle or 'Not assigned' }}</dd>
+          </div>
+        {% endif %}
+
+        <div class="info-list__row">
+          <dt class="info-list__key">Contact number</dt>
+          <dd class="info-list__val">{{ profile.contact or 'Not set' }}</dd>
+        </div>
+        <div class="info-list__row">
+          <dt class="info-list__key">Account status</dt>
+          <dd class="info-list__val">
+            <span class="badge badge--{{ 'success' if profile.status == 'Active' else 'muted' }}">
+              <span class="dot"></span>{{ profile.status or 'Unknown' }}
+            </span>
+          </dd>
+        </div>
+      </dl>
+
+      <p class="field__hint">
+        {{ icon('info', 'icon--sm') }}
+        Assignment details are managed by the City Hall office. Contact them to request a change.
+      </p>
+    </div>
+  </div>
+
+  {# ---- Change password ------------------------------------------------- #}
+  <div class="stack">
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">Change Password</h2></div>
+
+      <form class="card__body form" method="post" data-validate novalidate
+            action="{{ url_for('auth.change_password', next=request.path) }}">
+        {{ csrf_field() }}
+        <div class="field field--password">
+          <label class="field__label" for="current_password">Current Password</label>
+          <input class="field__input" type="password" id="current_password"
+                 name="current_password" required autocomplete="current-password">
+          <button type="button" class="field__reveal" data-reveal="current_password"
+                  aria-pressed="false" aria-label="Show password">
+            {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
+          </button>
+        </div>
+
+        <div class="field field--password">
+          <label class="field__label" for="new_password">New Password</label>
+          <input class="field__input" type="password" id="new_password" name="new_password"
+                 required minlength="8" data-password autocomplete="new-password"
+                 aria-describedby="new-pw-hint">
+          <button type="button" class="field__reveal" data-reveal="new_password"
+                  aria-pressed="false" aria-label="Show password">
+            {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
+          </button>
+          <p class="field__hint" id="new-pw-hint">Minimum 8 characters.</p>
+        </div>
+
+        <div class="field field--password">
+          <label class="field__label" for="confirm_password">Confirm Password</label>
+          <input class="field__input" type="password" id="confirm_password" name="confirm_password"
+                 required data-confirm autocomplete="new-password">
+          <button type="button" class="field__reveal" data-reveal="confirm_password"
+                  aria-pressed="false" aria-label="Show password">
+            {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
+          </button>
+        </div>
+
+        <div class="row row--end">
+          <button type="reset" class="btn btn--ghost">Cancel</button>
+          <button type="submit" class="btn btn--primary">
+            {{ icon('key', 'icon--sm') }} Update Password
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">Preferences</h2></div>
+      <div class="card__body stack">
+        <div class="row row--between">
+          <div>
+            <p class="strong">Appearance</p>
+            <p class="text-xs muted">A darker screen is easier to read in bright sun.</p>
+          </div>
+          <button type="button" class="btn btn--secondary btn--sm theme-toggle" data-theme-toggle>
+            {{ icon('sun', 'icon--sun icon--sm') }}{{ icon('moon', 'icon--moon icon--sm') }}
+            Toggle theme
+          </button>
+        </div>
+
+        <hr class="divider">
+
+        <a class="btn btn--secondary" href="{{ url_for('auth.logout') }}">
+          {{ icon('logout', 'icon--sm') }} Log Out
+        </a>
+      </div>
+    </div>
+  </div>
+</section>

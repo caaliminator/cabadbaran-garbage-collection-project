@@ -1,0 +1,142 @@
+{% extends 'public-viewer/base.html' %}
+{% from 'partials/icons.html' import icon %}
+
+{% block public %}
+
+<section class="card">
+  <div class="card__head" style="display:block">
+    <h1 class="card__title">Waste Collection Schedule</h1>
+    <p class="text-sm muted">Find out what is collected on any day of the month.</p>
+  </div>
+
+  <div class="card__body">
+    <div class="cal__head">
+      <a class="btn btn--icon" aria-label="Previous month"
+         href="{{ url_for('public.schedule', year=cal.prev[0], month=cal.prev[1]) }}">
+        <span style="display:flex;transform:rotate(180deg)">{{ icon('chevron-right', 'icon--sm') }}</span>
+      </a>
+      <h2 class="cal__label" aria-live="polite">{{ cal.label }}</h2>
+      <a class="btn btn--icon" aria-label="Next month"
+         href="{{ url_for('public.schedule', year=cal.next[0], month=cal.next[1]) }}">
+        {{ icon('chevron-right', 'icon--sm') }}
+      </a>
+    </div>
+
+    {# A table is the honest structure for a calendar: each cell belongs to a
+       weekday column and a week row. #}
+    <table class="cal" style="width:100%;border-collapse:collapse">
+      <caption class="sr-only">
+        Collection calendar for {{ cal.label }}. Each date shows its scheduled waste type.
+      </caption>
+      <thead>
+        <tr>
+          {% for d in cal.weekday_names %}
+            <th scope="col" class="cal__dow" abbr="{{ d }}">{{ d }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for week in cal.weeks %}
+          <tr>
+            {% for cell in week %}
+              <td style="padding:2px">
+                <div class="cal__cell
+                            {% if not cell.in_month %}cal__cell--muted{% endif %}
+                            {% if cell.is_today %}cal__cell--today{% endif %}">
+                  <span>{{ cell.day }}</span>
+                  {% if cell.has_collection %}
+                    <span class="cal__dot swatch-{{ cell.tone }}" aria-hidden="true"></span>
+                  {% endif %}
+                  <span class="sr-only">
+                    {{ cell.date.strftime('%B %d') }} —
+                    {{ cell.waste_type }}{% if cell.is_today %}, today{% endif %}
+                  </span>
+                </div>
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {# One legend entry per distinct waste type, not per weekday. #}
+    {% set seen = [] %}
+    <div class="cal__legend">
+      {% for row in week %}
+        {% if row.short and row.short not in seen and row.details %}
+          {% set _ = seen.append(row.short) %}
+          <span class="cal__legend-item">
+            <span class="cal__dot swatch-{{ row.tone }}" aria-hidden="true"></span>{{ row.short }}
+          </span>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{# ---- Coming up -------------------------------------------------------- #}
+<section class="card">
+  <div class="card__head"><h2 class="card__title">Coming Up</h2></div>
+  <div class="card__body" style="padding-block:var(--sp-2)">
+    <ul class="upcoming">
+      {% for d in upcoming %}
+        <li class="upcoming__row {% if d.is_today %}upcoming__row--today{% endif %}">
+          <span class="upcoming__date">
+            <span class="upcoming__day-num">{{ d.day_num }}</span>
+            <span class="upcoming__day-name">{{ d.weekday_short }}</span>
+          </span>
+          <span class="upcoming__main">
+            <span class="upcoming__type">{{ d.waste_type }}</span>
+            <span class="upcoming__detail">
+              {{ d.details|join(', ') if d.details else 'No collection on this day' }}
+            </span>
+          </span>
+          <span class="badge {{ 'badge--info' if d.is_today }}">{{ d.label }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{# ---- The full week ---------------------------------------------------- #}
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Weekly Schedule</h2>
+    <span class="text-xs muted">Set by the City Hall Admin</span>
+  </div>
+  <div class="card__body card__body--flush">
+    <div class="schedule" role="table" aria-label="Weekly waste collection schedule">
+      <div class="schedule__row schedule__row--head" role="row">
+        <span role="columnheader">Day</span>
+        <span role="columnheader">Waste Type</span>
+        <span role="columnheader">Details</span>
+      </div>
+      {% for row in week %}
+        {% set is_today = row.day == now.strftime('%A') %}
+        <div class="schedule__row {% if is_today %}schedule__row--today{% endif %}" role="row">
+          <div class="schedule__day" role="cell">
+            {{ row.day }}
+            {% if is_today %}<span class="badge badge--info">Today</span>{% endif %}
+          </div>
+          <div role="cell">
+            <span class="chip">
+              <span class="chip__swatch swatch-{{ row.tone }}" aria-hidden="true"></span>
+              {{ row.waste_type }}
+            </span>
+          </div>
+          <div role="cell">
+            {% if row.details %}
+              <div class="tags">
+                {% for d in row.details %}<span class="tag">{{ d }}</span>{% endfor %}
+              </div>
+            {% else %}
+              <p class="schedule__note">No waste collection on this day.</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% endblock %}

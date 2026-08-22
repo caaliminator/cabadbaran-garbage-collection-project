@@ -1,0 +1,57 @@
+{% extends 'public-viewer/base.html' %}
+{% from 'partials/icons.html' import icon %}
+
+{% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
+
+{% block public %}
+
+<section class="card">
+  <div class="card__head">
+    <div>
+      <h1 class="card__title">Where are the collectors?</h1>
+      <p class="text-sm muted">
+        Tricycles and City Hall trucks currently working, updated live.
+      </p>
+    </div>
+    <span class="badge badge--success"><span class="dot dot--pulse"></span>Live</span>
+  </div>
+
+  <div class="card__body" style="padding:var(--sp-3)">
+    {% with map_title = 'Collection vehicles',
+            show_barangay_filter = true,
+            show_tabs = true,
+            map_size = 'tall' %}
+      {% include 'partials/live_map.html' %}
+    {% endwith %}
+  </div>
+
+  <div class="card__foot">
+    <span class="text-xs muted">
+      {{ icon('info', 'icon--sm') }}
+      Markers show the vehicle number only. A collector appears here while they
+      are on duty and disappears when their shift ends.
+    </span>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Today — {{ now.strftime('%A') }}, {{ today_date }}</h2>
+  </div>
+  <div class="card__body">
+    {% if today_row.details %}
+      <p class="strong">{{ today_row.waste_type }}</p>
+      <div class="tags" style="margin-top:var(--sp-2)">
+        {% for d in today_row.details %}<span class="tag">{{ d }}</span>{% endfor %}
+      </div>
+    {% else %}
+      <p class="text-sm muted">No collection is scheduled today.</p>
+    {% endif %}
+    <a class="btn btn--secondary btn--block" style="margin-top:var(--sp-4)"
+       href="{{ url_for('public.today') }}">
+      {{ icon('leaf', 'icon--sm') }} See what is accepted today
+    </a>
+  </div>
+</section>
+
+{% endblock %}

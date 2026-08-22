@@ -1,0 +1,87 @@
+{% from 'partials/icons.html' import icon %}
+
+{# ===========================================================================
+   Live tracking map.
+
+   Every coordinate, boundary, and zone colour is fetched at runtime from
+   /api/geo/* and /api/live/vehicles -- there is none in this template and
+   none in map.js, so real barangay data drops into data/geo/ with no code
+   change (see docs/DATA_REQUIREMENTS.md).
+
+   Optional: map_title, map_barangays (list of (id, name)), map_scope,
+             show_tabs, show_barangay_filter, map_height
+   =========================================================================== #}
+
+<div class="map" data-map
+     {% if map_scope %}data-map-scope="{{ map_scope }}"{% endif %}
+     {% if locked_barangay %}data-map-barangay="{{ locked_barangay }}"{% endif %}>
+
+  <div class="map__head">
+    <span class="map__label">{{ map_title|default('Live Tracking') }}</span>
+
+    {% if show_tabs|default(true) %}
+      <div class="segmented" role="tablist" aria-label="Filter tracked vehicles">
+        <button type="button" class="segmented__btn" role="tab"
+                aria-selected="true" data-map-tab="all">All</button>
+        <button type="button" class="segmented__btn" role="tab"
+                aria-selected="false" data-map-tab="tricycles">Tricycles</button>
+        <button type="button" class="segmented__btn" role="tab"
+                aria-selected="false" data-map-tab="trucks">Trucks</button>
+      </div>
+    {% endif %}
+
+    {% if show_barangay_filter and map_barangays %}
+      <div class="field">
+        <label class="sr-only" for="map-barangay">Filter by barangay</label>
+        <select class="field__select" id="map-barangay" data-map-barangay>
+          <option value="">All Barangays</option>
+          {% for value, label in map_barangays %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
+
+    <button type="button" class="btn btn--icon" data-map-fullscreen
+            aria-pressed="false" aria-label="Toggle fullscreen map" style="color:#fff">
+      {{ icon('expand', 'icon--sm') }}
+    </button>
+  </div>
+
+  {# Height comes from CSS and scales with the viewport. `map_size='tall'` is
+     for pages where the map is the main content; `map_height` still forces an
+     exact value if a page ever needs one. #}
+  <div class="map__canvas{% if map_size == 'tall' %} map__canvas--tall{% endif %}"
+       data-map-canvas
+       {% if map_height %}style="height:{{ map_height }}"{% endif %}
+       role="application"
+       aria-label="Live map of Cabadbaran City showing barangay zones and active collectors">
+  </div>
+
+  {# Shown when the geo files are still placeholders, so an empty map reads as
+     "no data loaded yet" rather than as a failure. #}
+  <p class="map__note" data-map-note role="status"></p>
+
+  <div class="map__legend" data-map-legend>
+    <span class="map__legend-item">
+      <span class="map__legend-dot map__legend-dot--tricycle" aria-hidden="true"></span>
+      <strong data-legend="tricycles">0</strong> Tricycles Active
+    </span>
+    <span class="map__legend-item">
+      <span class="map__legend-dot map__legend-dot--truck" aria-hidden="true"></span>
+      <strong data-legend="trucks">0</strong> Trucks Active
+    </span>
+    <span class="map__legend-item">
+      <span class="map__legend-dot map__legend-dot--zone" aria-hidden="true"></span>
+      <strong data-legend="barangays">0</strong> Barangays
+    </span>
+    <span class="map__legend-item map__legend-item--live">
+      <span class="map__legend-pulse" aria-hidden="true"></span> Live Updates
+    </span>
+    <span class="map__legend-item text-xs muted" data-legend="stale" hidden></span>
+  </div>
+
+  {# The four zone colour groups, filled in by map.js from /api/geo/config so
+     the legend cannot drift from the colours the polygons are drawn with. #}
+  <div class="map__legend-zones" data-map-zones aria-label="Barangay zone groups"></div>
+</div>

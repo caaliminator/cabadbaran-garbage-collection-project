@@ -1,0 +1,376 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status, search_input, filter_select, th,
+                                      empty, field, select %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">User Management</h1>
+    <p class="page__sub">Create and manage accounts for barangay admins, collectors, and operators.</p>
+  </div>
+</div>
+
+{# ---- Create account --------------------------------------------------
+   Which fields are required depends on the role, so the role select drives
+   the form: barangay for a barangay admin or tricycle collector, a vehicle of
+   the matching type for either collector. The server enforces the same rules
+   in user_service._validate -- this is only the convenience layer.        #}
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Create New User Account</h2>
+    <span class="badge badge--info">{{ counts.total }} account{{ '' if counts.total == 1 else 's' }}</span>
+  </div>
+
+  <form class="card__body form" method="post" data-validate novalidate data-user-form>
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="create">
+
+    <div class="form__grid">
+      {{ field('full_name', 'Full Name', required=True, placeholder='Juan Dela Cruz', autocomplete='name') }}
+      {{ select('role', 'Role', roles, required=True, placeholder='Select role…', id='role') }}
+      {{ field('username', 'Username', required=True, placeholder='brgy1_admin', autocomplete='off',
+               hint='3-32 characters. Letters, numbers, dot, underscore, or hyphen.') }}
+
+      <div data-role-field="barangay" hidden>
+        {{ select('assigned_barangay', 'Assigned Barangay', barangays,
+                  placeholder='Select barangay…', id='assigned_barangay') }}
+      </div>
+
+      <div data-role-field="vehicle" hidden>
+        <div class="field">
+          <label class="field__label" for="assigned_vehicle">
+            Assigned Vehicle<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <select class="field__select" id="assigned_vehicle" name="assigned_vehicle"
+                  aria-describedby="vehicle-hint">
+            <option value="">Select vehicle…</option>
+            <optgroup label="Tricycles" data-vehicle-group="tricycle_collector">
+              {% for code in tricycles %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+            </optgroup>
+            <optgroup label="Trucks" data-vehicle-group="truck_collector">
+              {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+            </optgroup>
+          </select>
+          <p class="field__hint" id="vehicle-hint">
+            Only units that are registered and not already assigned appear here.
+          </p>
+        </div>
+      </div>
+
+      {{ field('contact_number', 'Contact Number', type='tel', placeholder='09175550142',
+               autocomplete='tel', hint='Optional. 11 digits starting 09.') }}
+
+      <div class="field field--password">
+        <label class="field__label" for="password">
+          Password<span class="field__req" aria-hidden="true">*</span><span class="sr-only">(required)</span>
+        </label>
+        <input class="field__input" type="password" id="password" name="password"
+               required minlength="8" data-password autocomplete="new-password"
+               aria-describedby="password-hint">
+        <button type="button" class="field__reveal" data-reveal="password"
+                aria-pressed="false" aria-label="Show password">
+          {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
+        </button>
+        <p class="field__hint" id="password-hint">Minimum 8 characters.</p>
+      </div>
+
+      <div class="field field--password">
+        <label class="field__label" for="confirm_password">
+          Confirm Password<span class="field__req" aria-hidden="true">*</span><span class="sr-only">(required)</span>
+        </label>
+        <input class="field__input" type="password" id="confirm_password" name="confirm_password"
+               required data-confirm autocomplete="new-password">
+        <button type="button" class="field__reveal" data-reveal="confirm_password"
+                aria-pressed="false" aria-label="Show password">
+          {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
+        </button>
+      </div>
+    </div>
+
+    <div class="row row--end">
+      <button type="reset" class="btn btn--ghost">Clear</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('plus', 'icon--sm') }} Create Account
+      </button>
+    </div>
+  </form>
+</section>
+
+{# ---- User list -------------------------------------------------------- #}
+<section class="card" data-table-controller="userTable">
+  <div class="toolbar">
+    <h2 class="toolbar__title">User List</h2>
+    {{ search_input('Search name or username', 'user-search') }}
+    {{ filter_select('role', 'All Roles', roles) }}
+    {{ filter_select('barangay', 'All Barangay', barangays) }}
+    {{ filter_select('status', 'All Status', ['Active', 'Inactive']) }}
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="userTable">
+      <caption class="sr-only">System user accounts</caption>
+      <thead>
+        <tr>
+          {{ th('Full Name', 'name') }}
+          {{ th('Username', 'username') }}
+          {{ th('Role', 'role') }}
+          {{ th('Assigned Barangay', 'barangay') }}
+          {{ th('Vehicle') }}
+          {{ th('Status', 'status') }}
+          {{ th('Date Created') }}
+          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+          <tr data-role="{{ u.role }}" data-barangay="{{ u.barangay_id or '' }}"
+              data-status="{{ u.status }}" data-name="{{ u.full_name }}"
+              data-username="{{ u.username }}">
+            <td data-label="Full Name">
+              <div class="row row--tight" style="flex-wrap:nowrap">
+                <span class="avatar" style="width:32px;height:32px;font-size:var(--text-xs)"
+                      aria-hidden="true">{{ u.full_name|initials }}</span>
+                <span>
+                  <span class="strong">{{ u.full_name }}</span>
+                  <span class="sub">{{ u.contact }}</span>
+                </span>
+              </div>
+            </td>
+            <td data-label="Username"><span class="mono">{{ u.username }}</span></td>
+            <td data-label="Role">{{ u.role_label }}</td>
+            <td data-label="Barangay">
+              {% if u.barangays %}
+                <div class="tags">
+                  {% for b in u.barangays %}<span class="tag">{{ b }}</span>{% endfor %}
+                </div>
+              {% else %}{{ u.barangay }}{% endif %}
+            </td>
+            <td data-label="Vehicle"><span class="mono">{{ u.vehicle }}</span></td>
+            <td data-label="Status">{{ status(u.status) }}</td>
+            <td data-label="Created" class="muted text-xs">
+              {{ u.created_at|datetime_display }}
+            </td>
+            <td class="table__actions">
+              <div class="actions">
+                <button type="button" class="btn btn--icon"
+                        data-modal-open="user-detail"
+                        data-set-name="{{ u.full_name }}"
+                        data-set-username="{{ u.username }}"
+                        data-set-role="{{ u.role_label }}"
+                        data-set-barangay="{{ u.barangays|join(', ') if u.barangays else u.barangay }}"
+                        data-set-vehicle="{{ u.vehicle }}"
+                        data-set-contact="{{ u.contact }}"
+                        data-set-status="{{ u.status }}"
+                        data-set-created="{{ u.created_at|datetime_display }}"
+                        aria-label="View {{ u.full_name }}">{{ icon('eye', 'icon--sm') }}</button>
+
+                <button type="button" class="btn btn--icon"
+                        data-modal-open="user-edit"
+                        data-set-id="{{ u.id }}"
+                        data-set-title="{{ u.full_name }}"
+                        data-set-full_name="{{ u.full_name }}"
+                        data-set-username="{{ u.username }}"
+                        data-set-role="{{ u.role }}"
+                        data-set-assigned_barangay="{{ u.barangay_id or '' }}"
+                        data-set-assigned_vehicle="{{ u.vehicle if u.vehicle != '—' else '' }}"
+                        data-set-contact_number="{{ u.contact if u.contact != '—' else '' }}"
+                        data-set-status="{{ u.status }}"
+                        aria-label="Edit {{ u.full_name }}">{{ icon('edit', 'icon--sm') }}</button>
+
+                <button type="button" class="btn btn--icon"
+                        data-modal-open="user-reset"
+                        data-set-id="{{ u.id }}"
+                        data-set-title="{{ u.full_name }}"
+                        aria-label="Reset password for {{ u.full_name }}">
+                  {{ icon('key', 'icon--sm') }}
+                </button>
+
+                <form method="post" style="display:contents"
+                      data-confirm-message="Delete the account for {{ u.full_name }}? This also removes their route assignment and cannot be undone.">
+                  {{ csrf_field() }}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="{{ u.id }}">
+                  <button type="submit" class="btn btn--icon is-danger"
+                          aria-label="Delete {{ u.full_name }}">{{ icon('trash', 'icon--sm') }}</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if users %}hidden{% endif %}>
+    {{ empty('No users found', 'Adjust the filters or search for a different name.', 'users') }}
+  </div>
+
+  <div class="card__foot">
+    <span class="text-xs muted" data-table-count></span>
+    <span class="text-xs muted">{{ counts.active }} active · {{ counts.inactive }} inactive</span>
+  </div>
+</section>
+
+{# ---- View dialog ------------------------------------------------------ #}
+<div class="modal" id="user-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="user-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <div>
+        <h2 id="user-detail-title" data-fill="name">User details</h2>
+        <p class="text-sm muted" data-fill="role">—</p>
+      </div>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Username</span><span class="kv__val mono" data-fill="username">—</span></div>
+        <div class="kv"><span class="kv__key">Assigned Barangay</span><span class="kv__val" data-fill="barangay">—</span></div>
+        <div class="kv"><span class="kv__key">Vehicle</span><span class="kv__val mono" data-fill="vehicle">—</span></div>
+        <div class="kv"><span class="kv__key">Contact</span><span class="kv__val" data-fill="contact">—</span></div>
+        <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
+        <div class="kv"><span class="kv__key">Date Created</span><span class="kv__val" data-fill="created">—</span></div>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+{# ---- Edit dialog ------------------------------------------------------ #}
+<div class="modal" id="user-edit" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="user-edit-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate data-user-form>
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="edit">
+    <input type="hidden" name="id" data-fill-value="id">
+
+    <div class="modal__head">
+      <h2 id="user-edit-title">Edit <span data-fill="title">account</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+
+    <div class="modal__body stack">
+      <div class="form__grid form__grid--2">
+        <div class="field">
+          <label class="field__label" for="edit_full_name">
+            Full Name<span class="field__req" aria-hidden="true">*</span>
+          </label>
+          <input class="field__input" id="edit_full_name" name="full_name" required
+                 data-fill-value="full_name">
+        </div>
+        <div class="field">
+          <label class="field__label" for="edit_username">
+            Username<span class="field__req" aria-hidden="true">*</span>
+          </label>
+          <input class="field__input" id="edit_username" name="username" required
+                 data-fill-value="username">
+        </div>
+
+        {{ select('role', 'Role', roles, required=True, id='edit_role') }}
+
+        <div data-role-field="barangay" hidden>
+          {{ select('assigned_barangay', 'Assigned Barangay', barangays,
+                    placeholder='Select barangay…', id='edit_assigned_barangay') }}
+        </div>
+
+        <div data-role-field="vehicle" hidden>
+          <div class="field">
+            <label class="field__label" for="edit_assigned_vehicle">Assigned Vehicle</label>
+            <select class="field__select" id="edit_assigned_vehicle" name="assigned_vehicle">
+              <option value="">Select vehicle…</option>
+              <optgroup label="Tricycles" data-vehicle-group="tricycle_collector">
+                {% for code in tricycles %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+              </optgroup>
+              <optgroup label="Trucks" data-vehicle-group="truck_collector">
+                {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+              </optgroup>
+            </select>
+            <p class="field__hint">
+              The unit currently held by this account is kept even if it is not free.
+            </p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_contact_number">Contact Number</label>
+          <input class="field__input" type="tel" id="edit_contact_number"
+                 name="contact_number" data-fill-value="contact_number">
+        </div>
+
+        {{ select('status', 'Account Status', ['Active', 'Inactive'],
+                  required=True, placeholder='Select status…', id='edit_status') }}
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">{{ icon('check', 'icon--sm') }} Save changes</button>
+    </div>
+  </form>
+</div>
+
+{# ---- Reset password dialog -------------------------------------------- #}
+<div class="modal" id="user-reset" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="user-reset-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate>
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="reset_password">
+    <input type="hidden" name="id" data-fill-value="id">
+
+    <div class="modal__head">
+      <h2 id="user-reset-title">Reset password for <span data-fill="title">user</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+
+    <div class="modal__body stack">
+      <p class="text-sm muted">
+        Set a temporary password and give it to the user directly. They will be
+        asked to change it, and their current password stops working immediately.
+      </p>
+
+      <div class="field field--password">
+        <label class="field__label" for="reset_new_password">
+          New Password<span class="field__req" aria-hidden="true">*</span>
+        </label>
+        <input class="field__input" type="password" id="reset_new_password"
+               name="new_password" required minlength="8" data-password
+               autocomplete="new-password" aria-describedby="reset-hint">
+        <button type="button" class="field__reveal" data-reveal="reset_new_password"
+                aria-pressed="false" aria-label="Show password">
+          {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
+        </button>
+        <p class="field__hint" id="reset-hint">Minimum 8 characters.</p>
+      </div>
+
+      <div class="field field--password">
+        <label class="field__label" for="reset_confirm_password">
+          Confirm Password<span class="field__req" aria-hidden="true">*</span>
+        </label>
+        <input class="field__input" type="password" id="reset_confirm_password"
+               name="confirm_password" required data-confirm autocomplete="new-password">
+        <button type="button" class="field__reveal" data-reveal="reset_confirm_password"
+                aria-pressed="false" aria-label="Show password">
+          {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
+        </button>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">{{ icon('key', 'icon--sm') }} Reset password</button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

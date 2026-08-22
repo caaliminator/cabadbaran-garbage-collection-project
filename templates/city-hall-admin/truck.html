@@ -1,0 +1,333 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, search_input, filter_select,
+                                      th, empty, select, radios %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Truck</h1>
+    <p class="page__sub">Assign truck operators to the barangay MRFs they collect from.</p>
+  </div>
+</div>
+
+{# ---- KPI row --------------------------------------------------------- #}
+<section class="grid grid--stats" aria-label="Truck fleet summary">
+  {% set tones = ['info', 'success', 'warning', 'violet'] %}
+  {% for label, value, hint, ico in stats %}
+    {{ stat(label, value, hint, ico, tones[loop.index0]) }}
+  {% endfor %}
+</section>
+
+{# ---- Coverage gap ----------------------------------------------------
+   8 trucks x 4 barangays is 32 against 31 barangays, so exact coverage needs
+   one truck on 3. Naming the barangays nobody collects from is the whole
+   point of this banner -- an uncovered MRF is silent otherwise.          #}
+{% if uncovered %}
+  <div class="notice notice--warning" role="status">
+    {{ icon('alert', 'icon--sm') }}
+    <div>
+      <p class="strong">
+        {{ uncovered|length }} barangay MRF{{ '' if uncovered|length == 1 else 's' }}
+        have no assigned truck
+      </p>
+      <p class="text-sm">
+        No truck will see
+        {% for b in uncovered %}<strong>{{ b.name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}
+        as a pending pickup, so their MRFs will not be emptied.
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+{# ---- Assign form ------------------------------------------------------ #}
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Assign Truck Operator</h2>
+  </div>
+
+  {% if not operators %}
+    <div class="card__body">
+      {% call empty('No truck operators yet',
+                    'Create a truck collector account before assigning a route.',
+                    'users') %}
+        <a class="btn btn--primary btn--sm" href="{{ url_for('city.users') }}">
+          {{ icon('plus', 'icon--sm') }} Create an account
+        </a>
+      {% endcall %}
+    </div>
+  {% else %}
+    <form class="card__body form" method="post" data-validate novalidate>
+      {{ csrf_field() }}
+
+      <div class="form__grid">
+        <div class="field">
+          <label class="field__label" for="operator_id">
+            Select Truck Operator<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <select class="field__select" id="operator_id" name="operator_id" required>
+            <option value="">Select operator…</option>
+            {% for o in operators %}
+              <option value="{{ o.id }}">{{ o.full_name }} ({{ o.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="truck_code">
+            Assigned Truck<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <select class="field__select" id="truck_code" name="truck_code" required
+                  aria-describedby="truck-hint">
+            <option value="">Select truck…</option>
+            {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+          </select>
+          <p class="field__hint" id="truck-hint">
+            {{ trucks|length }} of {{ counts.max_trucks }} units free.
+          </p>
+        </div>
+
+        {{ radios('status', 'Status', ['Active', 'Temporary Replacement'], required=True) }}
+      </div>
+
+      {# Covered MRFs as checkboxes rather than a multi-select: "hold Ctrl to
+         pick several" is a reliable way to lose a selection, and each row
+         carries an optional pickup time anyway.                            #}
+      <fieldset class="field" style="border:0;padding:0;margin:0">
+        <legend class="field__label">
+          Assigned Barangay MRFs<span class="field__req" aria-hidden="true">*</span>
+          <span class="sr-only">(required)</span>
+        </legend>
+        <p class="field__hint">
+          Tick each barangay MRF this truck collects from, and optionally the
+          planned pickup time — residents get a reminder
+          {{ config.ARRIVAL_REMINDER_HOURS }} hours before it.
+        </p>
+
+        <div class="mrf-picker" data-mrf-picker>
+          {% for value, label in barangays %}
+            {% set is_uncovered = value in counts.uncovered %}
+            <div class="mrf-picker__row {% if is_uncovered %}mrf-picker__row--gap{% endif %}">
+              <label class="choice">
+                <input type="checkbox" name="covered_mrfs" value="{{ value }}">
+                <span>{{ label }}{% if is_uncovered %}
+                  <span class="badge badge--warning">Uncovered</span>{% endif %}</span>
+              </label>
+              <label class="sr-only" for="planned_time__{{ value }}">
+                Planned pickup time for {{ label }}
+              </label>
+              <input class="field__input field__input--sm" type="time"
+                     id="planned_time__{{ value }}" name="planned_time__{{ value }}">
+            </div>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <label class="field__label" for="note">Note <span class="muted">(optional)</span></label>
+        <textarea class="field__textarea" id="note" name="note" maxlength="500"
+                  placeholder="Maintenance window, temporary cover…"></textarea>
+      </div>
+
+      <div class="row row--end">
+        <button type="reset" class="btn btn--ghost">Clear</button>
+        <button type="submit" class="btn btn--primary">{{ icon('check', 'icon--sm') }} Save</button>
+      </div>
+    </form>
+  {% endif %}
+</section>
+
+{# ---- Current assignments --------------------------------------------- #}
+<section>
+  <div class="card" data-table-controller="trkTable">
+    <div class="toolbar">
+      <h2 class="toolbar__title">Current Truck Assignment</h2>
+      {{ search_input('Search operator', 'trk-search') }}
+      {{ filter_select('status', 'All Status', statuses) }}
+      {{ filter_select('availability', 'All Availability', ['Available', 'Unavailable']) }}
+    </div>
+
+    <div class="table-wrap">
+      <table class="table" id="trkTable">
+        <caption class="sr-only">Current truck operator assignments</caption>
+        <thead>
+          <tr>
+            {{ th('Truck Operator', 'operator') }}
+            {{ th('Username') }}
+            {{ th('Covered Barangay MRF') }}
+            {{ th('Assigned Truck', 'truck') }}
+            {{ th('Availability', 'availability') }}
+            {{ th('Status', 'status') }}
+            <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr data-status="{{ r.status }}" data-availability="{{ r.availability }}"
+                data-operator="{{ r.operator }}" data-truck="{{ r.truck }}">
+              <td data-label="Operator"><span class="strong">{{ r.operator }}</span></td>
+              <td data-label="Username"><span class="mono">{{ r.username }}</span></td>
+              <td data-label="Covered MRFs">
+                <div class="tags">
+                  {% for m in r.mrfs %}<span class="tag">{{ m }}</span>{% endfor %}
+                </div>
+                <span class="sub">{{ r.mrfs|length }} MRF{{ '' if r.mrfs|length == 1 else 's' }}</span>
+              </td>
+              <td data-label="Truck"><span class="mono">{{ r.truck }}</span></td>
+              <td data-label="Availability">{{ status(r.availability) }}</td>
+              <td data-label="Status">{{ status(r.status) }}</td>
+              <td class="table__actions">
+                <div class="actions">
+                  <button type="button" class="btn btn--icon"
+                          data-modal-open="trk-detail"
+                          data-set-name="{{ r.operator }}"
+                          data-set-truck="{{ r.truck }}"
+                          data-set-mrfs="{{ r.mrfs|join(', ') or 'None' }}"
+                          data-set-times="{% for b, t in r.planned_pickup_times.items() %}{{ t }}{% if not loop.last %}, {% endif %}{% else %}Not set{% endfor %}"
+                          data-set-availability="{{ r.availability }}"
+                          data-set-status="{{ r.status }}"
+                          data-set-note="{{ r.note or 'No notes recorded.' }}"
+                          aria-label="View assignment for {{ r.operator }}">
+                    {{ icon('eye', 'icon--sm') }}
+                  </button>
+
+                  <button type="button" class="btn btn--icon"
+                          data-modal-open="trk-edit"
+                          data-set-id="{{ r.id }}"
+                          data-set-title="{{ r.operator }}"
+                          data-set-operator_id="{{ r.operator_id }}"
+                          data-set-truck_code="{{ r.truck }}"
+                          data-set-status="{{ r.status }}"
+                          data-set-note="{{ r.note }}"
+                          data-set-mrfs="{{ r.mrf_ids|join(',') }}"
+                          aria-label="Edit assignment for {{ r.operator }}">
+                    {{ icon('edit', 'icon--sm') }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div data-table-empty {% if rows %}hidden{% endif %}>
+      {{ empty('No assignments yet', 'Assign an operator using the form above.', 'truck') }}
+    </div>
+
+    <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+  </div>
+</section>
+
+{% with registry_type = 'truck', max_trucks = counts.max_trucks %}
+  {% include 'partials/vehicle_registry.html' %}
+{% endwith %}
+
+{# ---- Detail dialog ---------------------------------------------------- #}
+<div class="modal" id="trk-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="trk-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <h2 id="trk-detail-title" data-fill="name">Assignment</h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body stack">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Assigned Truck</span><span class="kv__val mono" data-fill="truck">—</span></div>
+        <div class="kv"><span class="kv__key">Availability</span><span class="kv__val" data-fill="availability">—</span></div>
+        <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
+        <div class="kv"><span class="kv__key">Planned Times</span><span class="kv__val" data-fill="times">—</span></div>
+      </div>
+      <div class="kv"><span class="kv__key">Covered Barangay MRFs</span><span class="kv__val text-sm" data-fill="mrfs">—</span></div>
+      <div class="kv"><span class="kv__key">Note</span><span class="kv__val text-sm" data-fill="note">—</span></div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+{# ---- Edit dialog ------------------------------------------------------ #}
+<div class="modal" id="trk-edit" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="trk-edit-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate>
+    {{ csrf_field() }}
+    <input type="hidden" name="id" data-fill-value="id">
+
+    <div class="modal__head">
+      <h2 id="trk-edit-title">Edit assignment — <span data-fill="title">operator</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+
+    <div class="modal__body stack">
+      <div class="form__grid form__grid--2">
+        <div class="field">
+          <label class="field__label" for="edit_operator_id">Truck Operator</label>
+          <select class="field__select" id="edit_operator_id" name="operator_id"
+                  required data-fill-value="operator_id">
+            {% for o in operators %}
+              <option value="{{ o.id }}">{{ o.full_name }} ({{ o.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_truck_code">Assigned Truck</label>
+          <select class="field__select" id="edit_truck_code" name="truck_code"
+                  required data-fill-value="truck_code">
+            {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_trk_status">Status</label>
+          <select class="field__select" id="edit_trk_status" name="status"
+                  required data-fill-value="status">
+            {% for s in statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <fieldset class="field" style="border:0;padding:0;margin:0">
+        <legend class="field__label">Covered Barangay MRFs</legend>
+        <div class="mrf-picker" data-fill-checks="mrfs">
+          {% for value, label in barangays %}
+            <div class="mrf-picker__row">
+              <label class="choice">
+                <input type="checkbox" name="covered_mrfs" value="{{ value }}">
+                <span>{{ label }}</span>
+              </label>
+              <label class="sr-only" for="edit_planned_time__{{ value }}">
+                Planned pickup time for {{ label }}
+              </label>
+              <input class="field__input field__input--sm" type="time"
+                     id="edit_planned_time__{{ value }}" name="planned_time__{{ value }}">
+            </div>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <label class="field__label" for="edit_trk_note">Note</label>
+        <textarea class="field__textarea" id="edit_trk_note" name="note" maxlength="500"
+                  data-fill-value="note"></textarea>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('check', 'icon--sm') }} Save changes
+      </button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

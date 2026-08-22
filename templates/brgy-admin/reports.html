@@ -1,0 +1,127 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, th, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Resident Reports</h1>
+    <p class="page__sub">
+      What residents of Brgy. {{ barangay }} have told us about their collection.
+    </p>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="Report summary">
+  {{ stat('Reports Received', reports|length, 'From residents', 'home', 'info') }}
+  {{ stat('Open Disputes', disputes|length,
+          'Need your decision', 'alert',
+          'danger' if disputes else 'success') }}
+  {{ stat('Not Collected Reports',
+          reports|selectattr('status_reported', 'equalto', 'Not Collected')|list|length,
+          'Residents reporting a miss', 'x', 'warning') }}
+</section>
+
+{# ---- Disputes ---------------------------------------------------------
+   Neither account was overwritten, so both are shown side by side and the
+   admin picks which stands.                                              #}
+{% if disputes %}
+  <section class="card">
+    <div class="card__head">
+      <h2 class="card__title">Disputes to Resolve</h2>
+      <span class="badge badge--warning">{{ disputes|length }}</span>
+    </div>
+
+    <div class="card__body card__body--flush">
+      {% for d in disputes %}
+        <div class="entry">
+          <div style="min-width:0">
+            <h3 class="entry__title">{{ d.owner_name }}</h3>
+            <p class="entry__sub">{{ d.purok }} · {{ d.date_display }}</p>
+            <p class="entry__sub">{{ d.dispute_note }}</p>
+
+            {% if d.image_proof_path %}
+              <a class="card__link"
+                 href="{{ url_for('collector.proof', relative=d.image_proof_path) }}">
+                {{ icon('eye', 'icon--sm') }} View the collector's photo proof
+              </a>
+            {% endif %}
+          </div>
+
+          <div class="entry__meta" style="align-items:stretch;gap:var(--sp-2)">
+            {{ status(d.status) }}
+            <form method="post" style="display:flex;gap:var(--sp-2)">
+              {{ csrf_field() }}
+              <input type="hidden" name="id" value="{{ d.id }}">
+              <button type="submit" name="keep" value="collector"
+                      class="btn btn--secondary btn--sm">
+                Collector is right
+              </button>
+              <button type="submit" name="keep" value="resident"
+                      class="btn btn--secondary btn--sm">
+                Resident is right
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+
+{# ---- All reports ------------------------------------------------------ #}
+<section class="card" data-table-controller="reportTable">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Report Log</h2>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="reportTable">
+      <caption class="sr-only">Anonymous reports from residents</caption>
+      <thead>
+        <tr>
+          {{ th('Date') }}
+          {{ th('Time') }}
+          {{ th('Property') }}
+          {{ th('Purok') }}
+          {{ th('Reported') }}
+          {{ th('Comment') }}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+          <tr>
+            <td data-label="Date">{{ r.date_display }}</td>
+            <td data-label="Time" class="muted text-xs">{{ r.time_display }}</td>
+            <td data-label="Property">
+              <span class="strong">{{ r.owner_name or '—' }}</span>
+              <span class="sub">Reported by resident</span>
+            </td>
+            <td data-label="Purok">{{ r.purok or '—' }}</td>
+            <td data-label="Reported">
+              {{ status(r.status_reported) }}
+              {% if r.disputed %}<span class="badge badge--warning">Disputed</span>{% endif %}
+            </td>
+            <td data-label="Comment" class="text-sm muted">{{ r.comment or '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if reports %}hidden{% endif %}>
+    {{ empty('No reports yet',
+             'Residents can report a missed collection from the public page — no account needed.',
+             'home') }}
+  </div>
+
+  <div class="card__foot">
+    <span class="text-xs muted">
+      {{ icon('info', 'icon--sm') }}
+      Reports are anonymous. Nothing identifying the sender is stored.
+    </span>
+  </div>
+</section>
+
+{% endblock %}

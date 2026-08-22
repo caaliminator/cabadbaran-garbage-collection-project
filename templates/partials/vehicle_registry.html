@@ -1,0 +1,134 @@
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status, th, empty %}
+
+{# ===========================================================================
+   Vehicle registry. Spec 6.3 flags this as missing logic: the assign
+   dropdowns need registered units to come from somewhere.
+
+   `registry` is a list of units already annotated with a live status, and
+   `registry_type` is 'tricycle' or 'truck'. Shared by the Tricycle and Truck
+   pages, which each show only their own kind.
+   =========================================================================== #}
+
+{% set kind = registry_type|default('tricycle') %}
+{% set prefix = 'TRI' if kind == 'tricycle' else 'TRK' %}
+{% set label = 'Tricycle' if kind == 'tricycle' else 'Truck' %}
+
+<section class="card" data-table-controller="{{ kind }}Registry">
+  <div class="toolbar">
+    <div>
+      <h2 class="toolbar__title">{{ label }} Unit Registry</h2>
+      <p class="text-sm muted">
+        Units available to the assign form above.
+        {% if kind == 'truck' %}
+          The city is limited to {{ max_trucks }} trucks.
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card__body">
+    <form class="form" method="post" action="{{ url_for('city.vehicles') }}"
+          data-validate novalidate>
+      {{ csrf_field() }}
+      <input type="hidden" name="action" value="register">
+      <input type="hidden" name="type" value="{{ kind }}">
+      <input type="hidden" name="back" value="{{ request.path }}">
+
+      <div class="form__grid form__grid--2">
+        <div class="field">
+          <label class="field__label" for="{{ kind }}_code">
+            Unit Code<span class="field__req" aria-hidden="true">*</span>
+          </label>
+          <input class="field__input mono" id="{{ kind }}_code" name="code" required
+                 placeholder="{{ prefix }}-01" pattern="{{ prefix }}-[0-9]{2,3}"
+                 aria-describedby="{{ kind }}_code-hint">
+          <p class="field__hint" id="{{ kind }}_code-hint">
+            Format {{ prefix }}-01. Codes must be unique.
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="{{ kind }}_note">Note <span class="muted">(optional)</span></label>
+          <input class="field__input" id="{{ kind }}_note" name="note" maxlength="120"
+                 placeholder="Plate number, donor, condition…">
+        </div>
+      </div>
+
+      <div class="row row--end">
+        <button type="submit" class="btn btn--secondary">
+          {{ icon('plus', 'icon--sm') }} Register unit
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="{{ kind }}Registry">
+      <caption class="sr-only">Registered {{ label|lower }} units</caption>
+      <thead>
+        <tr>
+          {{ th('Unit Code', 'code') }}
+          {{ th('Status', 'status') }}
+          {{ th('Note') }}
+          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in registry %}
+          <tr data-code="{{ v.code }}" data-status="{{ v.status }}">
+            <td data-label="Unit Code"><span class="mono strong">{{ v.code }}</span></td>
+            <td data-label="Status">
+              {% if v.status == 'available' %}
+                <span class="badge badge--success"><span class="dot"></span>Available</span>
+              {% elif v.status == 'assigned' %}
+                <span class="badge badge--info"><span class="dot"></span>Assigned</span>
+              {% else %}
+                <span class="badge badge--muted"><span class="dot"></span>Inactive</span>
+              {% endif %}
+            </td>
+            <td data-label="Note" class="muted text-sm">{{ v.note or '—' }}</td>
+            <td class="table__actions">
+              <div class="actions">
+                <form method="post" action="{{ url_for('city.vehicles') }}" style="display:contents">
+                  {{ csrf_field() }}
+                  <input type="hidden" name="id" value="{{ v.id }}">
+                  <input type="hidden" name="back" value="{{ request.path }}">
+                  {% if v.status == 'inactive' %}
+                    <input type="hidden" name="action" value="reactivate">
+                    <button type="submit" class="btn btn--icon"
+                            aria-label="Return {{ v.code }} to service">
+                      {{ icon('check', 'icon--sm') }}
+                    </button>
+                  {% else %}
+                    <input type="hidden" name="action" value="deactivate">
+                    <button type="submit" class="btn btn--icon"
+                            aria-label="Withdraw {{ v.code }} from service">
+                      {{ icon('alert', 'icon--sm') }}
+                    </button>
+                  {% endif %}
+                </form>
+
+                <form method="post" action="{{ url_for('city.vehicles') }}" style="display:contents"
+                      data-confirm-message="Remove {{ v.code }} from the registry? This cannot be undone.">
+                  {{ csrf_field() }}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="{{ v.id }}">
+                  <input type="hidden" name="back" value="{{ request.path }}">
+                  <button type="submit" class="btn btn--icon is-danger"
+                          aria-label="Delete {{ v.code }}">{{ icon('trash', 'icon--sm') }}</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if registry %}hidden{% endif %}>
+    {{ empty('No units registered', 'Register a unit above so it can be assigned.', kind) }}
+  </div>
+
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+</section>

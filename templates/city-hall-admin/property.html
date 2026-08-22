@@ -1,0 +1,184 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, search_input, filter_select,
+                                      th, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Property</h1>
+    <p class="page__sub">
+      Household monitoring across all barangays · {{ selected_date|date_display }}
+    </p>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="Property collection summary">
+  {% set tones = ['warning', 'success', 'danger'] %}
+  {% for label, value, hint, ico in stats %}
+    {{ stat(label, value|comma, hint, ico, tones[loop.index0]) }}
+  {% endfor %}
+</section>
+
+{# ---- Filters ---------------------------------------------------------
+   Date, barangay, purok, type, and collector are server-side because they
+   change which records are loaded; status filters client-side alongside the
+   search, so it stays instant.                                            #}
+<section class="card">
+  <form method="get" class="card__body">
+    <div class="form__grid">
+      <div class="field">
+        <label class="field__label" for="date">Date</label>
+        <input class="field__input" type="date" id="date" name="date"
+               value="{{ selected_date }}" max="{{ today }}">
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="barangay">Barangay</label>
+        <select class="field__select" id="barangay" name="barangay">
+          <option value="">All Barangays</option>
+          {% for value, label in barangays %}
+            <option value="{{ value }}"
+                    {% if request.args.get('barangay') == value %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="purok">Purok</label>
+        <select class="field__select" id="purok" name="purok">
+          <option value="">All Puroks</option>
+          {% for p in puroks %}
+            <option value="{{ p }}"
+                    {% if request.args.get('purok') == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="type">Property Type</label>
+        <select class="field__select" id="type" name="type">
+          <option value="">All Types</option>
+          {% for t in types %}
+            <option value="{{ t }}"
+                    {% if request.args.get('type') == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="collector">Collector</label>
+        <select class="field__select" id="collector" name="collector">
+          <option value="">All Collectors</option>
+          {% for value, label in collectors %}
+            <option value="{{ value }}"
+                    {% if request.args.get('collector') == value %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="status">Status</label>
+        <select class="field__select" id="status" name="status">
+          <option value="">All Status</option>
+          {% for s in statuses %}
+            <option value="{{ s }}"
+                    {% if request.args.get('status') == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="row row--end">
+      <a class="btn btn--ghost" href="{{ url_for('city.property') }}">Reset</a>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('search', 'icon--sm') }} Apply filters
+      </button>
+    </div>
+  </form>
+</section>
+
+{# ---- Records ---------------------------------------------------------- #}
+<section class="card" data-table-controller="propMonitor">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Property Records</h2>
+    {{ search_input('Search owner name', 'monitor-search') }}
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="propMonitor">
+      <caption class="sr-only">
+        Every registered property and its collection status for the selected date
+      </caption>
+      <thead>
+        <tr>
+          {{ th('Name', 'name') }}
+          {{ th('Property', 'type') }}
+          {{ th('Barangay', 'barangay') }}
+          {{ th('Purok', 'purok') }}
+          {{ th('Assigned Tricycle') }}
+          {{ th('Status', 'status') }}
+          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-name="{{ r.owner_name }}" data-type="{{ r.type }}"
+              data-barangay="{{ r.barangay }}" data-purok="{{ r.purok }}"
+              data-status="{{ r.status }}">
+            <td data-label="Name"><span class="strong">{{ r.owner_name }}</span></td>
+            <td data-label="Property">{{ r.type }}</td>
+            <td data-label="Barangay">{{ r.barangay }}</td>
+            <td data-label="Purok">{{ r.purok }}</td>
+            <td data-label="Tricycle"><span class="mono">{{ r.assigned_tricycle }}</span></td>
+            <td data-label="Status">
+              {{ status(r.status) }}
+              {% if r.disputed %}<span class="badge badge--warning">Disputed</span>{% endif %}
+              {% if r.source == 'public_report' %}
+                <span class="badge badge--muted">Resident</span>
+              {% endif %}
+            </td>
+            <td class="table__actions">
+              <button type="button" class="btn btn--icon"
+                      data-modal-open="entry-detail"
+                      data-set-name="{{ r.owner_name }}"
+                      data-set-property="{{ r.type }} · {{ r.barangay }}"
+                      data-set-purok="{{ r.purok }}"
+                      data-set-status="{{ r.status }}"
+                      data-set-collector="{{ r.collector }}"
+                      data-set-vehicle="{{ r.entry.tricycle_code if r.entry else '—' }}"
+                      data-set-time="{{ r.time or '—' }}"
+                      data-set-reason="{{ r.reason or '—' }}"
+                      data-set-note="{{ r.note or 'No note recorded.' }}"
+                      data-set-load="{% for l in r.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
+                      data-set-proof="{{ url_for('collector.proof', relative=r.entry.image_proof_path) if r.entry and r.entry.image_proof_path else '' }}"
+                      aria-label="View record for {{ r.owner_name }}">
+                {{ icon('eye', 'icon--sm') }}
+              </button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if rows %}hidden{% endif %}>
+    {{ empty('No properties match',
+             'Adjust the filters, or ask barangay admins to register properties.',
+             'home') }}
+  </div>
+
+  <div class="card__foot">
+    <span class="text-xs muted" data-table-count></span>
+    <span class="text-xs muted">{{ rows|length }} shown for this date</span>
+  </div>
+</section>
+
+{% include 'partials/entry_modal.html' %}
+
+{% endblock %}

@@ -1,0 +1,36 @@
+# Cabadbaran City Garbage Collection Tracking System
+#
+# Pinned to the versions this was built and tested against, so a deploy
+# months from now installs the same thing that passed the test suite.
+# Transitive dependencies are listed explicitly for the same reason --
+# `pip install Flask` alone would float Werkzeug and Jinja2 to whatever is
+# current on the day.
+#
+#     pip install -r requirements.txt
+#
+# Everything here is either in the agreed stack (Flask, Werkzeug,
+# Flask-SocketIO) or pulled in by it. gunicorn is the only addition, and
+# only because Render needs a real WSGI server -- see docs/DEPLOYMENT.md.
+
+# ---- Web framework --------------------------------------------------------
+Flask==3.1.0
+Werkzeug==3.1.8            # also provides the password hashing
+Jinja2==3.1.6              # templates      (Flask dependency)
+MarkupSafe==3.0.3          # escaping       (Jinja2 dependency)
+itsdangerous==2.2.0        # signed session cookies (Flask dependency)
+click==8.4.2               # CLI            (Flask dependency)
+blinker==1.9.0             # signals        (Flask dependency)
+
+# ---- Real time ------------------------------------------------------------
+Flask-SocketIO==5.6.1
+python-socketio==5.16.4    # (Flask-SocketIO dependency)
+python-engineio==4.13.5    # (python-socketio dependency)
+bidict==0.23.1             # (python-socketio dependency)
+simple-websocket==1.1.0    # websocket transport for the dev server
+wsproto==1.3.2             # (simple-websocket dependency)
+h11==0.16.0                # (wsproto dependency)
+
+# ---- Production server ----------------------------------------------------
+# Run with exactly one worker: the JSON store's locks are per-process, so a
+# second worker would write over the first. See docs/DEPLOYMENT.md.
+gunicorn==23.0.0 ; sys_platform != "win32"

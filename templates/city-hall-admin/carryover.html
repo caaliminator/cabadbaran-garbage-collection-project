@@ -1,0 +1,246 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, filter_select, th, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Carry-Over</h1>
+    <p class="page__sub">
+      MRF loads that were missed and still need collecting.
+    </p>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="Carry-over summary">
+  {% set tones = ['warning', 'danger', 'danger', 'success'] %}
+  {% for label, value, hint, ico in stats %}
+    {{ stat(label, value, hint, ico, tones[loop.index0]) }}
+  {% endfor %}
+</section>
+
+{% if counts.unassigned %}
+  <div class="notice" role="status">
+    {{ icon('alert', 'icon--sm') }}
+    <div>
+      <p class="strong">
+        {{ counts.unassigned }} carry-over{{ '' if counts.unassigned == 1 else 's' }}
+        have no truck assigned
+      </p>
+      <p class="text-sm">
+        No truck sees them as a pending pickup until you reassign one, so the
+        waste stays in the MRF.
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+<section class="card" data-table-controller="carryTable">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Carry-Over Records</h2>
+    {{ filter_select('status', 'All Status', ['Pending', 'Collected']) }}
+    {{ filter_select('barangay', 'All Barangay', barangays) }}
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="carryTable">
+      <caption class="sr-only">Missed MRF pickups carried over to another schedule</caption>
+      <thead>
+        <tr>
+          {{ th('Barangay', 'barangay') }}
+          {{ th('Source Schedule Day') }}
+          {{ th('Waste Type') }}
+          {{ th('Original Truck') }}
+          {{ th('Current Truck') }}
+          {{ th('Rescheduled To') }}
+          {{ th('Status', 'status') }}
+          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-barangay="{{ r.barangay_id }}" data-status="{{ r.status }}">
+            <td data-label="Barangay">
+              <span class="strong">{{ r.barangay }}</span>
+              {% if r.missed_count and r.missed_count > 1 %}
+                <span class="sub">Missed {{ r.missed_count }} times</span>
+              {% endif %}
+            </td>
+            <td data-label="Source Day">{{ r.source_schedule_day or '—' }}</td>
+            <td data-label="Waste Type">
+              {{ r.waste_type or '—' }}
+              {% if r.lines %}
+                <div class="tags">
+                  {% for line in r.lines | by_waste_type %}
+                    <span class="tag">{{ line.label }} — {{ line.display }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </td>
+            <td data-label="Original Truck"><span class="mono">{{ r.original_truck or '—' }}</span></td>
+            <td data-label="Current Truck"><span class="mono">{{ r.current_truck_display }}</span></td>
+            <td data-label="Rescheduled To">
+              {{ r.reschedule_display }}
+              {% if r.overdue %}<span class="badge badge--danger">Overdue</span>
+              {% elif r.due_today %}<span class="badge badge--info">Due today</span>{% endif %}
+            </td>
+            <td data-label="Status">{{ status(r.status) }}</td>
+            <td class="table__actions">
+              <div class="actions">
+                <button type="button" class="btn btn--icon"
+                        data-modal-open="carry-detail"
+                        data-set-name="{{ r.barangay }}"
+                        data-set-source="{{ r.source_schedule_day }}"
+                        data-set-waste="{{ r.waste_type }}"
+                        data-set-total="{{ r.total }}"
+                        data-set-original="{{ r.original_truck or '—' }}"
+                        data-set-current="{{ r.current_truck_display }}"
+                        data-set-first="{{ r.first_missed_display }}"
+                        data-set-reason="{{ r.reason or 'Not recorded' }}"
+                        aria-label="View carry-over for {{ r.barangay }}">
+                  {{ icon('eye', 'icon--sm') }}
+                </button>
+
+                {% if r.status == 'Pending' %}
+                  <button type="button" class="btn btn--secondary btn--sm"
+                          data-modal-open="carry-reassign"
+                          data-set-id="{{ r.id }}" data-set-title="{{ r.barangay }}">
+                    Reassign
+                  </button>
+                  <button type="button" class="btn btn--secondary btn--sm"
+                          data-modal-open="carry-reschedule"
+                          data-set-id="{{ r.id }}" data-set-title="{{ r.barangay }}">
+                    Reschedule
+                  </button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if rows %}hidden{% endif %}>
+    {{ empty('No carry-overs',
+             'Every MRF pickup has been completed. A missed pickup will appear here automatically.',
+             'check') }}
+  </div>
+
+  <div class="card__foot">
+    <span class="text-xs muted" data-table-count></span>
+    <span class="text-xs muted">
+      A carry-over closes automatically when its barangay MRF is next collected.
+    </span>
+  </div>
+</section>
+
+{# ---- Detail dialog ---------------------------------------------------- #}
+<div class="modal" id="carry-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="carry-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <h2 id="carry-detail-title" data-fill="name">Carry-over</h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Source Schedule Day</span><span class="kv__val" data-fill="source">—</span></div>
+        <div class="kv"><span class="kv__key">Waste Type</span><span class="kv__val" data-fill="waste">—</span></div>
+        <div class="kv"><span class="kv__key">Load</span><span class="kv__val" data-fill="total">—</span></div>
+        <div class="kv"><span class="kv__key">First Missed</span><span class="kv__val" data-fill="first">—</span></div>
+        <div class="kv"><span class="kv__key">Original Truck</span><span class="kv__val mono" data-fill="original">—</span></div>
+        <div class="kv"><span class="kv__key">Current Truck</span><span class="kv__val mono" data-fill="current">—</span></div>
+      </div>
+      <div class="kv" style="margin-top:var(--sp-3)">
+        <span class="kv__key">Reason it was missed</span>
+        <span class="kv__val text-sm" data-fill="reason">—</span>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+{# ---- Reassign --------------------------------------------------------- #}
+<div class="modal" id="carry-reassign" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="carry-reassign-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate>
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="reassign">
+    <input type="hidden" name="id" data-fill-value="id">
+
+    <div class="modal__head">
+      <h2 id="carry-reassign-title">Reassign <span data-fill="title">carry-over</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+
+    <div class="modal__body stack">
+      <p class="text-sm muted">
+        The chosen truck will see this MRF as a pending pickup, on top of its
+        normal route.
+      </p>
+      <div class="field">
+        <label class="field__label" for="reassign_truck">
+          Truck<span class="field__req" aria-hidden="true">*</span>
+        </label>
+        <select class="field__select" id="reassign_truck" name="truck" required>
+          <option value="">Select truck…</option>
+          {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('check', 'icon--sm') }} Reassign
+      </button>
+    </div>
+  </form>
+</div>
+
+{# ---- Reschedule ------------------------------------------------------- #}
+<div class="modal" id="carry-reschedule" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="carry-reschedule-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate>
+    {{ csrf_field() }}
+    <input type="hidden" name="action" value="reschedule">
+    <input type="hidden" name="id" data-fill-value="id">
+
+    <div class="modal__head">
+      <h2 id="carry-reschedule-title">Reschedule <span data-fill="title">carry-over</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+
+    <div class="modal__body stack">
+      <p class="text-sm muted">
+        The assigned truck sees this pickup from the chosen date onward.
+      </p>
+      <div class="field">
+        <label class="field__label" for="reschedule_date">
+          New collection date<span class="field__req" aria-hidden="true">*</span>
+        </label>
+        <input class="field__input" type="date" id="reschedule_date"
+               name="reschedule_date" required min="{{ today }}">
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('calendar', 'icon--sm') }} Reschedule
+      </button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

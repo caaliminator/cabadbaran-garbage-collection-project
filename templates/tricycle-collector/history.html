@@ -1,0 +1,90 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status, search_input, filter_select, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">History</h1>
+    <p class="page__sub">Everything you have recorded on your route.</p>
+  </div>
+</div>
+
+{# The date filter is a real query, not a client-side one: history spans
+   every day worked, and only the chosen day is loaded. #}
+<form class="card" method="get" style="margin-bottom:var(--sp-5)">
+  <div class="card__body row" style="gap:var(--sp-3);align-items:flex-end;flex-wrap:wrap">
+    <div class="field" style="flex:1;min-width:200px">
+      <label class="field__label" for="search">Search owner</label>
+      <input class="field__input" type="search" id="search" name="search"
+             value="{{ search }}" placeholder="Owner name">
+    </div>
+    <div class="field">
+      <label class="field__label" for="date">Date</label>
+      <input class="field__input" type="date" id="date" name="date" value="{{ selected_date }}">
+    </div>
+    <div class="row" style="gap:var(--sp-2)">
+      <button type="submit" class="btn btn--primary">{{ icon('search', 'icon--sm') }} Filter</button>
+      <a class="btn btn--ghost" href="{{ url_for('collector.tricycle_history') }}">Clear</a>
+    </div>
+  </div>
+</form>
+
+<section class="card" data-table-controller="triHistory" data-table-row-selector=".entry">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Property Collection History</h2>
+    {{ filter_select('status', 'All Status', ['Collected', 'Not Collected']) }}
+    {{ filter_select('batch', 'All Batches', rows | map(attribute='batch') | unique | list) }}
+  </div>
+
+  <div id="triHistory">
+    {% for r in rows %}
+      <article class="entry" data-status="{{ r.status }}" data-batch="{{ r.batch }}">
+        <div style="min-width:0">
+          <h3 class="entry__title">{{ r.owner_name }}</h3>
+          <p class="entry__sub">{{ r.property_type }} · {{ r.purok }} · {{ r.batch }}</p>
+          <p class="entry__sub">Waste type: {{ r.waste_type or '—' }}</p>
+
+          {% if r.load_display %}
+            <div class="entry__load">
+              {% for line in r.load_display %}
+                <div class="entry__load-row">
+                  <span>{{ line.label }}</span><span>{{ line.value }} {{ line.display }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% elif r.reason %}
+            <p class="entry__sub"><span class="badge badge--danger">{{ r.reason }}</span></p>
+            {% if r.image_proof_path %}
+              <a class="card__link" href="{{ url_for('collector.proof', relative=r.image_proof_path) }}">
+                {{ icon('eye', 'icon--sm') }} View image proof
+              </a>
+            {% endif %}
+          {% endif %}
+
+          {% if r.note %}<p class="entry__sub muted">{{ r.note }}</p>{% endif %}
+        </div>
+
+        <div class="entry__meta">
+          {{ status(r.status) }}
+          <span>{{ r.date_display }}</span>
+          <span>{{ r.time_display }}</span>
+          <span class="mono">{{ r.tricycle_code or '—' }}</span>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+
+  <div data-table-empty hidden>
+    {{ empty('No matching records', 'Try a different search term or clear the filters.', 'search') }}
+  </div>
+
+  {% if not rows %}
+    {{ empty('No history yet', 'Your recorded collections will appear here.', 'file') }}
+  {% endif %}
+
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+</section>
+
+{% endblock %}

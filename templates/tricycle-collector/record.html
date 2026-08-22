@@ -1,0 +1,13 @@
+{% extends 'shell.html' %}
+
+{% block page %}
+  {# Photo evidence is required for a household not-collected entry: it is
+     what the barangay admin reviews when a resident disputes it. #}
+  {% with kind = 'tricycle',
+          vehicle = user.vehicle,
+          proof_required = True,
+          back_url = url_for('collector.tricycle_route'),
+          post_url = url_for('collector.tricycle_record', property_id=row.id) %}
+    {% include 'partials/record_form.html' %}
+  {% endwith %}
+{% endblock %}

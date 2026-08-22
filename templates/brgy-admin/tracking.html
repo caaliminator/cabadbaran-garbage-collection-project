@@ -1,0 +1,84 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status, empty %}
+
+{% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Live Tracking</h1>
+    <p class="page__sub">Tricycle collectors working in Brgy. {{ barangay }}.</p>
+  </div>
+</div>
+
+<section class="split split--wide">
+  <div class="stack">
+    {% with map_title = 'Brgy. ' ~ barangay,
+            locked_barangay = barangay_id,
+            show_tabs = true,
+            map_size = 'tall' %}
+      {% include 'partials/live_map.html' %}
+    {% endwith %}
+  </div>
+
+  <div class="stack">
+    {# ---- Truck arrival ---------------------------------------------- #}
+    <section class="card">
+      <div class="card__head"><h2 class="card__title">City Hall Truck</h2></div>
+      <div class="card__body stack">
+        <div class="row row--between">
+          <span class="text-sm muted">MRF pickup status</span>
+          {{ status(mrf.status) }}
+        </div>
+        <dl class="info-list">
+          <div class="info-list__row">
+            <dt class="info-list__key">Source schedule</dt>
+            <dd class="info-list__val">{{ mrf.source_schedule_day }}</dd>
+          </div>
+          <div class="info-list__row">
+            <dt class="info-list__key">Waste type</dt>
+            <dd class="info-list__val">{{ mrf.waste_type }}</dd>
+          </div>
+          <div class="info-list__row">
+            <dt class="info-list__key">Waiting in MRF</dt>
+            <dd class="info-list__val">{{ mrf.load.total }}</dd>
+          </div>
+        </dl>
+        {% if mrf.reason %}
+          <p class="field__hint">
+            {{ icon('alert', 'icon--sm') }} Not collected: {{ mrf.reason }}
+          </p>
+        {% endif %}
+      </div>
+    </section>
+
+    {# ---- Notifications ---------------------------------------------- #}
+    <section class="card">
+      <div class="card__head">
+        <h2 class="card__title">Truck Arrival Notifications</h2>
+      </div>
+      <div class="card__body card__body--flush">
+        {% for a in alerts %}
+          <div class="alert-row {% if a.unread %}alert-row--unread{% endif %}">
+            <span class="alert-row__icon alert-row__icon--{{ a.tone }}" aria-hidden="true">
+              {{ icon(a.icon, 'icon--sm') }}
+            </span>
+            <div style="min-width:0">
+              <p class="alert-row__title">{{ a.title }}</p>
+              <p class="alert-row__body">{{ a.message }}</p>
+            </div>
+            <span class="alert-row__time">{{ a.time_display }}</span>
+          </div>
+        {% else %}
+          {{ empty('No alerts yet',
+                   'You will be told here when a City Hall truck is approaching your MRF.',
+                   'bell') }}
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</section>
+
+{% endblock %}

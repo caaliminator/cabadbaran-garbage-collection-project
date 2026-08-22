@@ -1,0 +1,7 @@
+{% extends 'shell.html' %}
+
+{% block page %}
+  {% with kind = 'truck' %}
+    {% include 'partials/unavailable_form.html' %}
+  {% endwith %}
+{% endblock %}

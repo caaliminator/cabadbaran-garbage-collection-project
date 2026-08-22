@@ -1,0 +1,55 @@
+{% from 'partials/icons.html' import icon %}
+
+{# ===========================================================================
+   Weekly waste schedule, read-only. Shared by the City Hall and Barangay
+   portals; the City Hall build reaches its editor through the page header.
+   Below 860px each row stacks; the header row is hidden (see pages.css).
+   =========================================================================== #}
+
+<section class="card">
+  <div class="card__head">
+    <div>
+      <h2 class="card__title">Waste Schedule</h2>
+      <p class="text-sm muted">Segregation calendar observed across all barangays.</p>
+    </div>
+  </div>
+
+  <div class="card__body card__body--flush">
+    <div class="schedule" role="table" aria-label="Weekly waste collection schedule">
+
+      <div class="schedule__row schedule__row--head" role="row">
+        <span role="columnheader">Day</span>
+        <span role="columnheader">Waste Type</span>
+        <span role="columnheader">Details / Examples of Waste</span>
+      </div>
+
+      {% for row in schedule %}
+        {% set is_today = row.day == now.strftime('%A') %}
+        <div class="schedule__row {% if is_today %}schedule__row--today{% endif %}" role="row">
+
+          <div class="schedule__day" role="cell">
+            {{ row.day }}
+            {% if is_today %}<span class="badge badge--info">Today</span>{% endif %}
+          </div>
+
+          <div role="cell">
+            <span class="chip">
+              <span class="chip__swatch swatch-{{ row.tone }}" aria-hidden="true"></span>
+              {{ row.waste_type }}
+            </span>
+          </div>
+
+          <div role="cell">
+            {% if row.details %}
+              <div class="tags">
+                {% for detail in row.details %}<span class="tag">{{ detail }}</span>{% endfor %}
+              </div>
+            {% else %}
+              <p class="schedule__note">No waste collection on this day.</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>

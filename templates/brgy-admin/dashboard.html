@@ -1,0 +1,178 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, progress_stat, th, empty %}
+
+{% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Dashboard</h1>
+    <p class="page__sub">Brgy. {{ barangay }} · {{ today_date }}</p>
+  </div>
+</div>
+
+{# ---- Collection status ------------------------------------------------ #}
+<section class="grid grid--stats" aria-label="Today's collection status">
+  {{ progress_stat('Property Collection', counts.collected, counts.total,
+                   counts.percent,
+                   [('Pending', counts.pending, 'warning'),
+                    ('Not Collected', counts.not_collected, 'danger')],
+                   'home', 'info',
+                   url_for('brgy.collections'), 'View collections') }}
+
+  {{ stat('Registered Properties', counts.total|comma,
+          'Households and establishments', 'home', 'violet') }}
+
+  {{ stat('MRF Status', mrf.status, 'Source schedule: ' ~ mrf.source_schedule_day,
+          'recycle', 'success' if mrf.status == 'Collected from MRF' else 'warning') }}
+
+  {% if counts.disputed %}
+    {{ stat('Disputed', counts.disputed,
+            'Resident and collector disagree', 'alert', 'danger') }}
+  {% else %}
+    {{ stat('Waiting in MRF', mrf.load.total, 'For the City Hall truck',
+            'package', 'info') }}
+  {% endif %}
+</section>
+
+<section class="split split--wide">
+
+  {# ---- Live map ------------------------------------------------------- #}
+  <div class="stack">
+    {% with map_title = 'Brgy. ' ~ barangay ~ ' — Live Tracking',
+            locked_barangay = barangay_id,
+            show_tabs = true,
+            map_size = 'default' %}
+      {% include 'partials/live_map.html' %}
+    {% endwith %}
+
+    {# ---- Recent collection log --------------------------------------- #}
+    <section class="card">
+      <div class="card__head">
+        <h2 class="card__title">Recent Collection Log</h2>
+        <a class="card__link" href="{{ url_for('brgy.collections') }}">
+          View all {{ icon('chevron-right', 'icon--sm') }}
+        </a>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <caption class="sr-only">Today's collection entries in this barangay</caption>
+          <thead>
+            <tr>
+              {{ th('Time') }}
+              {{ th('Purok') }}
+              {{ th('TRI No.') }}
+              {{ th('Status') }}
+              {{ th('Reason') }}
+              <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in recent %}
+              <tr>
+                <td data-label="Time">{{ r.time }}</td>
+                <td data-label="Purok">{{ r.purok }}</td>
+                <td data-label="TRI No."><span class="mono">{{ r.entry.tricycle_code or '—' }}</span></td>
+                <td data-label="Status">
+                  {{ status(r.status) }}
+                  {% if r.disputed %}<span class="badge badge--warning">Disputed</span>{% endif %}
+                </td>
+                <td data-label="Reason" class="text-sm muted">{{ r.reason or '—' }}</td>
+                <td class="table__actions">
+                  <button type="button" class="btn btn--icon"
+                          data-modal-open="entry-detail"
+                          data-set-name="{{ r.owner_name }}"
+                          data-set-property="{{ r.type }}"
+                          data-set-purok="{{ r.purok }}"
+                          data-set-status="{{ r.status }}"
+                          data-set-collector="{{ collectors.get(r.entry.collector_id, '—') }}"
+                          data-set-vehicle="{{ r.entry.tricycle_code or '—' }}"
+                          data-set-time="{{ r.time }}"
+                          data-set-reason="{{ r.reason or '—' }}"
+                          data-set-note="{{ r.note or 'No note recorded.' }}"
+                          data-set-load="{% for l in r.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
+                          data-set-proof="{{ url_for('collector.proof', relative=r.entry.image_proof_path) if r.entry.image_proof_path else '' }}"
+                          aria-label="View entry for {{ r.owner_name }}">
+                    {{ icon('eye', 'icon--sm') }}
+                  </button>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6">
+                {{ empty('Nothing recorded yet today',
+                         'Entries appear here as your collectors work through their routes.',
+                         'file') }}
+              </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  {# ---- Notifications + load ------------------------------------------- #}
+  <div class="stack">
+    <section class="card">
+      <div class="card__head">
+        <h2 class="card__title">Notifications</h2>
+        {% if alerts %}
+          <form method="post" action="{{ url_for('brgy.read_notifications') }}">
+            {{ csrf_field() }}
+            <input type="hidden" name="back" value="{{ request.path }}">
+            <button type="submit" class="btn btn--ghost btn--sm">Mark all read</button>
+          </form>
+        {% endif %}
+      </div>
+      <div class="card__body card__body--flush">
+        {% for a in alerts %}
+          <div class="alert-row {% if a.unread %}alert-row--unread{% endif %}">
+            <span class="alert-row__icon alert-row__icon--{{ a.tone }}" aria-hidden="true">
+              {{ icon(a.icon, 'icon--sm') }}
+            </span>
+            <div style="min-width:0">
+              <p class="alert-row__title">{{ a.title }}</p>
+              <p class="alert-row__body">{{ a.message }}</p>
+            </div>
+            <span class="alert-row__time">{{ a.time_display }}</span>
+          </div>
+        {% else %}
+          {{ empty('No notifications',
+                   'Truck arrival alerts and resident reports will appear here.',
+                   'bell') }}
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card__head">
+        <h2 class="card__title">Overall Collected Load</h2>
+        <span class="text-xs muted">Today</span>
+      </div>
+      <div class="card__body">
+        {% if not totals.empty %}
+          <dl class="dlist">
+            {% for line in totals.lines | by_waste_type %}
+              <div class="dlist__row">
+                <dt class="dlist__key">{{ line.label }}</dt>
+                <dd class="dlist__val">{{ line.display }}</dd>
+              </div>
+            {% endfor %}
+            <div class="dlist__row dlist__row--total">
+              <dt>Total</dt><dd class="dlist__val">{{ totals.total }}</dd>
+            </div>
+          </dl>
+        {% else %}
+          {{ empty('Nothing collected yet',
+                   'Loads total up here as collectors record their stops.', 'package') }}
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</section>
+
+{% include 'partials/entry_modal.html' %}
+
+{% endblock %}

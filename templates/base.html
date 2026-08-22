@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en" data-nav-open="false">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Garbage Collection Tracking System for Cabadbaran City — monitor household collection, MRF pickups, and waste schedules in real time.">
+  <meta name="theme-color" content="#0b2c45" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="color-scheme" content="light dark">
+  {# Lets fetch()-based posts (the duty location stream) carry the CSRF token
+     that form posts send as a hidden field. #}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+
+  <title>{% block title %}{{ page_title|default('Dashboard') }}{% endblock %} · {{ city_name }} GCTS</title>
+
+  <link rel="icon" href="{{ url_for('static', filename='img/logo.jpg') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/logo.jpg') }}">
+
+  {# Layered stylesheets: tokens -> base -> layout -> components -> pages #}
+  <link rel="stylesheet" href="{{ asset('css/tokens.css') }}">
+  <link rel="stylesheet" href="{{ asset('css/base.css') }}">
+  <link rel="stylesheet" href="{{ asset('css/layout.css') }}">
+  <link rel="stylesheet" href="{{ asset('css/components.css') }}">
+  <link rel="stylesheet" href="{{ asset('css/pages.css') }}">
+  <link rel="stylesheet" href="{{ asset('css/roles.css') }}">
+  {% block head %}{% endblock %}
+
+  {# Apply the saved theme before first paint to avoid a flash of the wrong theme. #}
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('gcts-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  {% block body %}{% endblock %}
+
+  {# ---- Flash messages, announced to screen readers ---- #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% from 'partials/icons.html' import icon %}
+      <div class="toasts" role="status" aria-live="polite" aria-atomic="false">
+        {% for category, message in messages %}
+          <div class="toast toast--{{ category }}">
+            <span class="toast__icon">
+              {% if category == 'success' %}{{ icon('check-circle', 'icon--sm') }}
+              {% elif category == 'danger' %}{{ icon('alert', 'icon--sm') }}
+              {% elif category == 'warning' %}{{ icon('alert', 'icon--sm') }}
+              {% else %}{{ icon('info', 'icon--sm') }}{% endif %}
+            </span>
+            <p class="toast__msg">{{ message }}</p>
+            <button type="button" class="toast__close" aria-label="Dismiss notification">
+              {{ icon('x', 'icon--sm') }}
+            </button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <script src="{{ asset('js/app.js') }}" defer></script>
+
+  {# Real-time layer, by CDN <script> per the stack constraint. Both files are
+     enhancements: if either fails to load the pages still work, and the map
+     falls back to polling every 30 seconds. #}
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"
+          integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+"
+          crossorigin="anonymous"></script>
+  <script src="{{ asset('js/realtime.js') }}" defer></script>
+  <script src="{{ asset('js/tables.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

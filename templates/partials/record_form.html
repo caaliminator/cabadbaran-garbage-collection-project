@@ -1,0 +1,293 @@
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import status %}
+
+{# ===========================================================================
+   Collector stop record. Shared by the tricycle (household) and truck (MRF)
+   portals -- only the identity block differs, driven by `kind`.
+
+   Expects: row, entry, editable, kind ('tricycle'|'truck'), back_url,
+            post_url, waste_types, units, reasons, vehicle
+   =========================================================================== #}
+
+{% set current_status = entry.status if entry else 'Pending' %}
+
+<div class="page__head">
+  <div>
+    <a class="card__link" href="{{ back_url }}">
+      <span style="display:flex;transform:rotate(180deg)">{{ icon('arrow-right', 'icon--sm') }}</span>
+      Back to {{ 'route' if kind == 'tricycle' else 'MRF list' }}
+    </a>
+    <h1 class="page__title" style="margin-top:var(--sp-2)">
+      {{ row.owner_name if kind == 'tricycle' else row.barangay ~ ' MRF' }}
+    </h1>
+  </div>
+  <div class="page__actions">{{ status(current_status) }}</div>
+</div>
+
+{% if entry and editable %}
+  <div class="notice notice--info" role="status">
+    {{ icon('info', 'icon--sm') }}
+    <div>
+      <p class="strong">You already recorded this stop today</p>
+      <p class="text-sm">
+        Saving again replaces your entry. Entries can only be corrected on the
+        day they were made.
+      </p>
+    </div>
+  </div>
+{% elif entry and not editable %}
+  <div class="notice" role="status">
+    {{ icon('alert', 'icon--sm') }}
+    <div>
+      <p class="strong">This entry is locked</p>
+      <p class="text-sm">
+        It was recorded on a previous day, or by another collector. Ask the
+        barangay admin if it needs correcting.
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+{# Held on the phone and retried if the connection drops mid-route. #}
+<div class="notice notice--warning" role="status" data-offline-banner hidden>
+  {{ icon('alert', 'icon--sm') }}
+  <div><p data-offline-text></p></div>
+</div>
+
+<form method="post" action="{{ post_url }}" class="stack" data-validate novalidate
+      enctype="multipart/form-data" data-offline-queue
+      data-offline-label="{{ row.owner_name if kind == 'tricycle' else row.barangay }}"
+      {% if not editable %}inert{% endif %}>
+  {{ csrf_field() }}
+
+  <div class="split">
+
+    {# ---- Left: identity, status switch, capture ---------------------- #}
+    <div class="stack">
+
+      <section class="card">
+        <div class="card__head">
+          <h2 class="card__title">
+            {{ 'Name Selected' if kind == 'tricycle' else 'Selected Barangay' }}
+          </h2>
+        </div>
+        <div class="card__body stack">
+          <div class="record-id">
+            <div style="min-width:0">
+              <p class="record-id__name">
+                {{ row.owner_name if kind == 'tricycle' else row.barangay }}
+              </p>
+              <p class="record-id__meta">
+                {% if kind == 'tricycle' %}
+                  <span>{{ row.type }}</span><span>·</span>
+                  <span>{{ row.purok }}</span>
+                  {% if row.tag %}
+                    <span>·</span><span class="badge badge--warning">{{ row.tag }}</span>
+                  {% endif %}
+                {% else %}
+                  <span>Source schedule: {{ row.day }}</span><span>·</span>
+                  <span>{{ row.waste_type }}</span>
+                {% endif %}
+              </p>
+              {% if row.note %}<p class="text-sm muted">{{ row.note }}</p>{% endif %}
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          {# Two large targets beat a dropdown here: the choice is binary,
+             consequential, and made wearing gloves. #}
+          <fieldset style="border:0;padding:0;margin:0" data-reveal-group="record">
+            <legend class="field__label" style="margin-bottom:var(--sp-2)">
+              Collection result<span class="field__req" aria-hidden="true">*</span>
+              <span class="sr-only">(required)</span>
+            </legend>
+            <div class="status-switch">
+              <label class="status-switch__opt status-switch__opt--yes">
+                <input type="radio" name="status" value="Collected"
+                       {% if current_status != 'Not Collected' %}checked{% endif %}>
+                {{ icon('check', 'icon--sm') }}<span>Collect</span>
+              </label>
+              <label class="status-switch__opt status-switch__opt--no">
+                <input type="radio" name="status" value="Not Collected"
+                       {% if current_status == 'Not Collected' %}checked{% endif %}>
+                {{ icon('x', 'icon--sm') }}<span>Not Collected</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head"><h2 class="card__title">Capture</h2></div>
+        <div class="card__body gps">
+          <div class="gps__row">
+            <span class="gps__label">{{ icon('map-pin', 'icon--sm') }} GPS Location</span>
+            <span class="gps__value" data-geo-output>
+              {%- if entry and entry.gps -%}
+                {{ entry.gps.lat }}, {{ entry.gps.lng }}
+              {%- else -%}Not captured{%- endif -%}
+            </span>
+          </div>
+          <div class="gps__row">
+            <span class="gps__label">{{ icon('clock', 'icon--sm') }} Timestamp</span>
+            <span class="gps__value" data-live-timestamp>—</span>
+          </div>
+          <div class="gps__row">
+            <span class="gps__label">
+              {{ icon('tricycle' if kind == 'tricycle' else 'truck', 'icon--sm') }} Vehicle
+            </span>
+            <span class="gps__value">{{ vehicle or 'Not assigned' }}</span>
+          </div>
+
+          <input type="hidden" name="gps" data-geo-input
+                 value="{% if entry and entry.gps %}{{ entry.gps.lat }},{{ entry.gps.lng }}{% endif %}">
+
+          <button type="button" class="btn btn--secondary btn--block" data-geo-capture>
+            {{ icon('map-pin', 'icon--sm') }} Capture current location
+          </button>
+          <p class="field__hint" data-geo-status role="status"></p>
+        </div>
+      </section>
+    </div>
+
+    {# ---- Right: the result-specific panel ---------------------------- #}
+    <div class="stack">
+
+      {# Collected -> waste quantity. The types come from today's schedule
+         row, so a Tuesday entry offers recyclable categories rather than
+         Kitchen Waste. Fields are keyed by index: a waste type containing a
+         slash or a space cannot then collide with another field name. #}
+      <section class="card record-panel" data-reveal-group="record" data-reveal-when="Collected">
+        <div class="card__head">
+          <h2 class="card__title">Waste Quantity</h2>
+          <span class="text-xs muted">Enter what you actually picked up</span>
+        </div>
+        <div class="card__body">
+          {% if waste_types %}
+            <div class="qty-list">
+              {% for wt in waste_types %}
+                {% set existing = none %}
+                {% if entry and entry.waste %}
+                  {% set existing = (entry.waste | selectattr('type', 'equalto', wt) | list | first) %}
+                {% endif %}
+                <div class="qty-row">
+                  <span class="qty-row__label" id="lbl-{{ loop.index0 }}">{{ wt }}</span>
+
+                  <div class="field">
+                    <label class="sr-only" for="unit_{{ loop.index0 }}">Unit for {{ wt }}</label>
+                    <select class="field__select" id="unit_{{ loop.index0 }}" name="unit_{{ loop.index0 }}">
+                      {% for u in units %}
+                        <option value="{{ u }}"
+                                {% if existing and existing.unit == u %}selected{% endif %}>{{ u }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+
+                  <div class="stepper">
+                    <button type="button" class="stepper__btn" data-step="-1"
+                            aria-label="Decrease {{ wt }} quantity">&minus;</button>
+                    <label class="sr-only" for="qty_{{ loop.index0 }}">Quantity of {{ wt }}</label>
+                    <input class="stepper__input" type="number" id="qty_{{ loop.index0 }}"
+                           name="qty_{{ loop.index0 }}"
+                           value="{{ existing.qty if existing else 0 }}" min="0" max="999"
+                           step="1" inputmode="numeric">
+                    <button type="button" class="stepper__btn" data-step="1"
+                            aria-label="Increase {{ wt }} quantity">+</button>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+            <p class="field__hint" style="margin-top:var(--sp-3)">
+              {{ icon('info', 'icon--sm') }}
+              At least one quantity must be greater than zero.
+            </p>
+          {% else %}
+            <p class="text-sm muted">
+              No waste types are scheduled for today, so there is nothing to
+              record as collected. Choose "Not Collected" if you visited the stop.
+            </p>
+          {% endif %}
+
+          <div class="field" style="margin-top:var(--sp-4)">
+            <label class="field__label" for="note_collected">Note <span class="muted">(optional)</span></label>
+            <textarea class="field__textarea" id="note_collected" name="note"
+                      maxlength="500"
+                      placeholder="Anything worth flagging about this stop…">{% if entry and entry.status == 'Collected' %}{{ entry.note }}{% endif %}</textarea>
+          </div>
+        </div>
+      </section>
+
+      {# Not collected -> reason, photo proof, note #}
+      <section class="card record-panel" data-reveal-group="record"
+               data-reveal-when="Not Collected" hidden>
+        <div class="card__head"><h2 class="card__title">Reason for Not Collected</h2></div>
+        <div class="card__body stack">
+
+          <div class="field">
+            <label class="field__label" for="reason">
+              Select reason<span class="field__req" aria-hidden="true">*</span>
+              <span class="sr-only">(required)</span>
+            </label>
+            <select class="field__select" id="reason" name="reason">
+              <option value="">Select reason…</option>
+              {% for r in reasons %}
+                <option value="{{ r }}"
+                        {% if entry and entry.reason == r %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field">
+            <span class="field__label" id="proof-label">
+              Image proof{% if proof_required %}<span class="field__req" aria-hidden="true">*</span>
+              <span class="sr-only">(required)</span>{% else %}
+              <span class="muted">(optional)</span>{% endif %}
+            </span>
+
+            {% if entry and entry.image_proof_path %}
+              <p class="field__hint">
+                {{ icon('check', 'icon--sm') }}
+                A photo is already attached. Upload another to replace it.
+              </p>
+              <img class="dropzone__preview" style="margin-bottom:var(--sp-3)"
+                   src="{{ url_for('collector.proof', relative=entry.image_proof_path) }}"
+                   alt="Existing image proof for this stop">
+            {% endif %}
+
+            <label class="dropzone" data-dropzone>
+              <input type="file" name="proof" accept="image/png, image/jpeg"
+                     capture="environment"
+                     aria-labelledby="proof-label" data-dropzone-input>
+              {{ icon('download', 'icon--lg') }}
+              <span class="strong" data-dropzone-label>Tap to take or upload a photo</span>
+              <span class="dropzone__hint">JPG or PNG, up to 5 MB</span>
+              <img class="dropzone__preview" data-dropzone-preview alt="" hidden>
+            </label>
+            {% if proof_required %}
+              <p class="field__hint">
+                Photo evidence is what the barangay admin reviews if the
+                resident disputes this entry.
+              </p>
+            {% endif %}
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="note_missed">Note <span class="muted">(optional)</span></label>
+            <textarea class="field__textarea" id="note_missed" name="note" maxlength="500"
+                      placeholder="Explain what you found at the stop…">{% if entry and entry.status == 'Not Collected' %}{{ entry.note }}{% endif %}</textarea>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  {% if editable %}
+    <div class="actionbar">
+      <a class="btn btn--secondary" href="{{ back_url }}">Cancel</a>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('check', 'icon--sm') }} {{ 'Update record' if entry else 'Save record' }}
+      </button>
+    </div>
+  {% endif %}
+</form>

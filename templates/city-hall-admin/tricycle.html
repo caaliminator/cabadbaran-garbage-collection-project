@@ -1,0 +1,304 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, search_input, filter_select,
+                                      th, empty, select, radios %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Tricycle</h1>
+    <p class="page__sub">Assign tricycle collectors to barangays and purok coverage.</p>
+  </div>
+</div>
+
+{# ---- KPI row --------------------------------------------------------- #}
+<section class="grid grid--stats" aria-label="Tricycle fleet summary">
+  {% set tones = ['info', 'success', 'warning', 'violet'] %}
+  {% for label, value, hint, ico in stats %}
+    {{ stat(label, value, hint, ico, tones[loop.index0]) }}
+  {% endfor %}
+</section>
+
+{# ---- Assign form ------------------------------------------------------
+   Purok choices depend on the barangay, so the barangay select rewrites the
+   pill set below it. Everything here is validated again server-side in
+   assignment_service.save_tricycle_assignment.                            #}
+<section class="card">
+  <div class="card__head">
+    <h2 class="card__title">Assign Tricycle Collector</h2>
+  </div>
+
+  {% if not collectors %}
+    <div class="card__body">
+      {% call empty('No tricycle collectors yet',
+                    'Create a tricycle collector account before assigning a route.',
+                    'users') %}
+        <a class="btn btn--primary btn--sm" href="{{ url_for('city.users') }}">
+          {{ icon('plus', 'icon--sm') }} Create an account
+        </a>
+      {% endcall %}
+    </div>
+  {% else %}
+    <form class="card__body form" method="post" data-validate novalidate
+          data-purok-form data-purok-map='{{ barangay_puroks|tojson }}'>
+      {{ csrf_field() }}
+
+      <div class="form__grid">
+        <div class="field">
+          <label class="field__label" for="collector_id">
+            Select Collector<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <select class="field__select" id="collector_id" name="collector_id" required>
+            <option value="">Select collector…</option>
+            {% for c in collectors %}
+              <option value="{{ c.id }}">{{ c.full_name }} ({{ c.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {{ select('barangay_id', 'Assigned Barangay', barangays, required=True,
+                  placeholder='Select barangay…', id='barangay_id') }}
+
+        <div class="field">
+          <label class="field__label" for="tricycle_code">
+            Assign Tricycle<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <select class="field__select" id="tricycle_code" name="tricycle_code" required
+                  aria-describedby="tricycle-hint">
+            <option value="">Select tricycle…</option>
+            {% for code in tricycles %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+          </select>
+          <p class="field__hint" id="tricycle-hint">
+            {{ tricycles|length }} unit{{ '' if tricycles|length == 1 else 's' }} free.
+            Assigned units are hidden.
+          </p>
+        </div>
+      </div>
+
+      <div class="form__grid form__grid--2">
+        <fieldset class="field" style="border:0;padding:0;margin:0">
+          <legend class="field__label">
+            Purok Coverage<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </legend>
+          <p class="field__hint">Select every purok this collector will service.</p>
+          <div class="pillset" data-purok-target>
+            <p class="text-sm muted">Choose a barangay first.</p>
+          </div>
+        </fieldset>
+
+        {{ radios('status', 'Status', ['Active', 'Temporary Replacement'], required=True) }}
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="note">Note <span class="muted">(optional)</span></label>
+        <textarea class="field__textarea" id="note" name="note" maxlength="500"
+                  placeholder="Reason for replacement, coverage caveats…"></textarea>
+      </div>
+
+      <div class="row row--end">
+        <button type="reset" class="btn btn--ghost">Clear</button>
+        <button type="submit" class="btn btn--primary">{{ icon('check', 'icon--sm') }} Save</button>
+      </div>
+    </form>
+  {% endif %}
+</section>
+
+{# ---- Current assignments --------------------------------------------- #}
+<section>
+  <div class="card" data-table-controller="triTable">
+    <div class="toolbar">
+      <h2 class="toolbar__title">Current Tricycle Assignment</h2>
+      {{ search_input('Search collector', 'tri-search') }}
+      {{ filter_select('barangay', 'All Barangay', barangays) }}
+      {{ filter_select('status', 'All Status', statuses) }}
+      {{ filter_select('availability', 'All Availability', ['Available', 'Unavailable']) }}
+    </div>
+
+    <div class="table-wrap">
+      <table class="table" id="triTable">
+        <caption class="sr-only">Current tricycle collector assignments</caption>
+        <thead>
+          <tr>
+            {{ th('Collector Name', 'collector') }}
+            {{ th('Username') }}
+            {{ th('Assigned Barangay', 'barangay') }}
+            {{ th('Purok Coverage') }}
+            {{ th('Assigned Tricycle', 'tricycle') }}
+            {{ th('Availability', 'availability') }}
+            {{ th('Status', 'status') }}
+            <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr data-barangay="{{ r.barangay_id }}" data-status="{{ r.status }}"
+                data-availability="{{ r.availability }}" data-collector="{{ r.collector }}"
+                data-tricycle="{{ r.tricycle }}">
+              <td data-label="Collector"><span class="strong">{{ r.collector }}</span></td>
+              <td data-label="Username"><span class="mono">{{ r.username }}</span></td>
+              <td data-label="Barangay">{{ r.barangay }}</td>
+              <td data-label="Purok Coverage">
+                <div class="tags">
+                  {% for p in r.puroks %}<span class="tag">{{ p }}</span>{% endfor %}
+                </div>
+              </td>
+              <td data-label="Tricycle"><span class="mono">{{ r.tricycle }}</span></td>
+              <td data-label="Availability">{{ status(r.availability) }}</td>
+              <td data-label="Status">{{ status(r.status) }}</td>
+              <td class="table__actions">
+                <div class="actions">
+                  <button type="button" class="btn btn--icon"
+                          data-modal-open="tri-detail"
+                          data-set-name="{{ r.collector }}"
+                          data-set-barangay="{{ r.barangay }}"
+                          data-set-puroks="{{ r.puroks|join(', ') or 'None' }}"
+                          data-set-tricycle="{{ r.tricycle }}"
+                          data-set-availability="{{ r.availability }}"
+                          data-set-status="{{ r.status }}"
+                          data-set-note="{{ r.note or 'No notes recorded.' }}"
+                          aria-label="View assignment for {{ r.collector }}">
+                    {{ icon('eye', 'icon--sm') }}
+                  </button>
+
+                  <button type="button" class="btn btn--icon"
+                          data-modal-open="tri-edit"
+                          data-set-id="{{ r.id }}"
+                          data-set-title="{{ r.collector }}"
+                          data-set-collector_id="{{ r.collector_id }}"
+                          data-set-barangay_id="{{ r.barangay_id }}"
+                          data-set-tricycle_code="{{ r.tricycle }}"
+                          data-set-status="{{ r.status }}"
+                          data-set-note="{{ r.note }}"
+                          data-set-puroks="{{ r.puroks|join(',') }}"
+                          aria-label="Edit assignment for {{ r.collector }}">
+                    {{ icon('edit', 'icon--sm') }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div data-table-empty {% if rows %}hidden{% endif %}>
+      {{ empty('No assignments yet', 'Assign a collector using the form above.', 'tricycle') }}
+    </div>
+
+    <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+  </div>
+</section>
+
+{% with registry_type = 'tricycle' %}
+  {% include 'partials/vehicle_registry.html' %}
+{% endwith %}
+
+{# ---- Detail dialog ---------------------------------------------------- #}
+<div class="modal" id="tri-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="tri-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <h2 id="tri-detail-title" data-fill="name">Assignment</h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body stack">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Assigned Barangay</span><span class="kv__val" data-fill="barangay">—</span></div>
+        <div class="kv"><span class="kv__key">Tricycle</span><span class="kv__val mono" data-fill="tricycle">—</span></div>
+        <div class="kv"><span class="kv__key">Purok Coverage</span><span class="kv__val" data-fill="puroks">—</span></div>
+        <div class="kv"><span class="kv__key">Availability</span><span class="kv__val" data-fill="availability">—</span></div>
+        <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
+      </div>
+      <div class="kv"><span class="kv__key">Note</span><span class="kv__val text-sm" data-fill="note">—</span></div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+{# ---- Edit dialog ------------------------------------------------------ #}
+<div class="modal" id="tri-edit" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="tri-edit-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate
+        data-purok-form data-purok-map='{{ barangay_puroks|tojson }}'>
+    {{ csrf_field() }}
+    <input type="hidden" name="id" data-fill-value="id">
+
+    <div class="modal__head">
+      <h2 id="tri-edit-title">Edit assignment — <span data-fill="title">collector</span></h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+
+    <div class="modal__body stack">
+      <div class="form__grid form__grid--2">
+        <div class="field">
+          <label class="field__label" for="edit_collector_id">Collector</label>
+          <select class="field__select" id="edit_collector_id" name="collector_id"
+                  required data-fill-value="collector_id">
+            {% for c in collectors %}
+              <option value="{{ c.id }}">{{ c.full_name }} ({{ c.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_barangay_id">Assigned Barangay</label>
+          <select class="field__select" id="edit_barangay_id" name="barangay_id"
+                  required data-fill-value="barangay_id">
+            {% for value, label in barangays %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_tricycle_code">Assigned Tricycle</label>
+          <select class="field__select" id="edit_tricycle_code" name="tricycle_code"
+                  required data-fill-value="tricycle_code">
+            {% for code in tricycles %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+          </select>
+          <p class="field__hint">
+            The unit this assignment already holds stays selectable.
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_status">Status</label>
+          <select class="field__select" id="edit_status" name="status"
+                  required data-fill-value="status">
+            {% for s in statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <fieldset class="field" style="border:0;padding:0;margin:0">
+        <legend class="field__label">Purok Coverage</legend>
+        <div class="pillset" data-purok-target data-fill-selection="puroks"></div>
+      </fieldset>
+
+      <div class="field">
+        <label class="field__label" for="edit_note">Note</label>
+        <textarea class="field__textarea" id="edit_note" name="note" maxlength="500"
+                  data-fill-value="note"></textarea>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('check', 'icon--sm') }} Save changes
+      </button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends 'shell.html' %}
+
+{% block page %}
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Waste Schedule</h1>
+    <p class="page__sub">
+      Set by the City Hall Admin and observed across all barangays.
+    </p>
+  </div>
+</div>
+
+{% include 'partials/schedule_table.html' %}
+{% endblock %}

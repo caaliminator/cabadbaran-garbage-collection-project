@@ -1,0 +1,250 @@
+{% from 'partials/icons.html' import icon %}
+
+{# ===========================================================================
+   Reusable UI macros. Keeping these here means a change to (say) the stat
+   card shape propagates to all 18 screens at once.
+   =========================================================================== #}
+
+
+{# ---- Page heading ------------------------------------------------------ #}
+{% macro page_head(title, sub=None) %}
+<div class="page__head">
+  <div>
+    <h1 class="page__title">{{ title }}</h1>
+    {% if sub %}<p class="page__sub">{{ sub }}</p>{% endif %}
+  </div>
+  <div class="page__actions">{{ caller() if caller is defined }}</div>
+</div>
+{% endmacro %}
+
+
+{# ---- Status badge ------------------------------------------------------ #}
+{% macro status(label) %}
+<span class="badge badge--{{ label|tone }}">
+  <span class="dot" aria-hidden="true"></span>{{ label }}
+</span>
+{% endmacro %}
+
+
+{# ---- KPI / stat card ---------------------------------------------------
+   tone: info | success | warning | danger | violet                        #}
+{% macro stat(label, value, hint=None, ico='package', tone='info', suffix=None) %}
+<article class="stat">
+  <div class="stat__top">
+    <span class="stat__icon stat__icon--{{ tone }}" aria-hidden="true">{{ icon(ico) }}</span>
+    <div style="min-width:0">
+      <p class="stat__label">{{ label }}</p>
+      <p class="stat__value">{{ value }}{% if suffix %}<small> {{ suffix }}</small>{% endif %}</p>
+    </div>
+  </div>
+  {% if hint %}<p class="stat__hint">{{ hint }}</p>{% endif %}
+  {{ caller() if caller is defined }}
+</article>
+{% endmacro %}
+
+
+{# ---- Progress-style collection card (Property / MRF completion) -------- #}
+{% macro progress_stat(label, done, total, pct, parts, ico='home', tone='info', link=None, link_label=None) %}
+<article class="stat">
+  <div class="stat__top">
+    <span class="stat__icon stat__icon--{{ tone }}" aria-hidden="true">{{ icon(ico) }}</span>
+    <div style="min-width:0;flex:1">
+      <p class="stat__label">{{ label }}</p>
+      <p class="stat__value">{{ done|comma }} <small>/ {{ total|comma }}</small></p>
+    </div>
+  </div>
+
+  <div>
+    <div class="progress" role="progressbar" aria-valuenow="{{ pct }}"
+         aria-valuemin="0" aria-valuemax="100"
+         aria-label="{{ label }} progress: {{ pct }} percent complete">
+      <div class="progress__bar" style="width:{{ pct }}%"></div>
+    </div>
+    <p class="stat__hint" style="margin-top:var(--sp-2)">{{ pct }}% completed</p>
+  </div>
+
+  <dl class="stat__split">
+    {% for key, val, _tone in parts %}
+      <div>
+        <dd>{{ val|comma }}</dd>
+        <dt>{{ key }}</dt>
+      </div>
+    {% endfor %}
+  </dl>
+
+  {% if link %}
+    <a class="card__link" href="{{ link }}">{{ link_label }} {{ icon('chevron-right', 'icon--sm') }}</a>
+  {% endif %}
+</article>
+{% endmacro %}
+
+
+{# ---- Empty state ------------------------------------------------------- #}
+{% macro empty(title, message, ico='package') %}
+<div class="empty">
+  <span class="empty__icon" aria-hidden="true">{{ icon(ico, 'icon--lg') }}</span>
+  <p class="empty__title">{{ title }}</p>
+  <p>{{ message }}</p>
+  {{ caller() if caller is defined }}
+</div>
+{% endmacro %}
+
+
+{# ---- Search input (wired to tables.js) --------------------------------- #}
+{% macro search_input(placeholder='Search', id='table-search') %}
+<div class="field field--icon toolbar__search">
+  <label class="sr-only" for="{{ id }}">{{ placeholder }}</label>
+  {{ icon('search', 'icon--sm') }}
+  <input class="field__input" type="search" id="{{ id }}"
+         placeholder="{{ placeholder }}" data-table-search autocomplete="off">
+</div>
+{% endmacro %}
+
+
+{# ---- Filter select (wired to tables.js) -------------------------------- #}
+{% macro filter_select(key, label, options, id=None, selected=None) %}
+{% set sid = id or ('filter-' ~ key) %}
+<div class="field">
+  <label class="sr-only" for="{{ sid }}">{{ label }}</label>
+  <select class="field__select" id="{{ sid }}" data-table-filter="{{ key }}">
+    <option value="">{{ label }}</option>
+    {% for opt in options %}
+      {% set val = opt[0] if opt is not string and opt is iterable else opt %}
+      {% set text = opt[1] if opt is not string and opt is iterable else opt %}
+      <option value="{{ val }}" {% if selected == val %}selected{% endif %}>{{ text }}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+
+{# ---- Sortable table header -------------------------------------------- #}
+{% macro th(label, key=None, numeric=False) %}
+{% if key %}
+  <th scope="col" data-sort-key="{{ key }}" aria-sort="none"
+      {% if numeric %}class="table__num"{% endif %}>
+    {{ label }}{{ icon('arrow-up', 'icon--sm') }}
+  </th>
+{% else %}
+  <th scope="col" {% if numeric %}class="table__num"{% endif %}>{{ label }}</th>
+{% endif %}
+{% endmacro %}
+
+
+{# ---- Form field -------------------------------------------------------- #}
+{% macro field(name, label, type='text', required=False, value='', placeholder='', hint=None, autocomplete=None) %}
+<div class="field">
+  <label class="field__label" for="{{ name }}">
+    {{ label }}{% if required %}<span class="field__req" aria-hidden="true">*</span>
+    <span class="sr-only">(required)</span>{% endif %}
+  </label>
+  <input class="field__input" type="{{ type }}" id="{{ name }}" name="{{ name }}"
+         value="{{ value }}" placeholder="{{ placeholder }}"
+         {% if required %}required{% endif %}
+         {% if autocomplete %}autocomplete="{{ autocomplete }}"{% endif %}
+         {% if hint %}aria-describedby="{{ name }}-hint"{% endif %}>
+  {% if hint %}<p class="field__hint" id="{{ name }}-hint">{{ hint }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+
+{# ---- Select field ------------------------------------------------------ #}
+{# `options` may be a list of strings, or of (value, label) pairs when the
+   value stored differs from the text shown -- barangay ids, role keys. #}
+{% macro select(name, label, options, required=False, placeholder='Select…',
+                selected=None, id=None, hint=None, disabled=False) %}
+{% set sid = id or name %}
+<div class="field">
+  <label class="field__label" for="{{ sid }}">
+    {{ label }}{% if required %}<span class="field__req" aria-hidden="true">*</span>
+    <span class="sr-only">(required)</span>{% endif %}
+  </label>
+  <select class="field__select" id="{{ sid }}" name="{{ name }}"
+          {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}
+          {% if hint %}aria-describedby="{{ sid }}-hint"{% endif %}>
+    <option value="" {% if not selected %}selected{% endif %}>{{ placeholder }}</option>
+    {% for opt in options %}
+      {% set val = opt[0] if opt is not string and opt is iterable else opt %}
+      {% set text = opt[1] if opt is not string and opt is iterable else opt %}
+      <option value="{{ val }}" {% if selected == val %}selected{% endif %}>{{ text }}</option>
+    {% endfor %}
+  </select>
+  {% if hint %}<p class="field__hint" id="{{ sid }}-hint">{{ hint }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+
+{# ---- Radio group ------------------------------------------------------- #}
+{% macro radios(name, label, options, required=False, checked=None) %}
+<fieldset class="field" style="border:0;padding:0;margin:0">
+  <legend class="field__label">
+    {{ label }}{% if required %}<span class="field__req" aria-hidden="true">*</span>
+    <span class="sr-only">(required)</span>{% endif %}
+  </legend>
+  <div class="choices">
+    {% for opt in options %}
+      <label class="choice">
+        <input type="radio" name="{{ name }}" value="{{ opt }}"
+               {% if checked == opt or (not checked and loop.first) %}checked{% endif %}>
+        <span>{{ opt }}</span>
+      </label>
+    {% endfor %}
+  </div>
+</fieldset>
+{% endmacro %}
+
+
+{# ---- Waste-type chip --------------------------------------------------- #}
+{% macro waste_chip(tone, label) %}
+<span class="chip">
+  <span class="chip__swatch swatch-{{ tone }}" aria-hidden="true"></span>{{ label }}
+</span>
+{% endmacro %}
+
+
+{# ---- Live map --------------------------------------------------------
+   The schematic inline-SVG map that used to live here has been replaced by
+   partials/live_map.html, a real Leaflet map fed entirely by /api/geo/* and
+   /api/live/vehicles. The old macro carried hardcoded polygon coordinates,
+   which is exactly what the geo data must not have: real boundaries are meant
+   to drop into data/geo/ without a code change.
+
+   Usage:  {% include 'partials/live_map.html' %}
+           and {% include 'partials/map_assets.html' %} in {% block head %}
+   #}
+
+
+{# ---- Donut chart (CSS conic-gradient, no chart library) ---------------- #}
+{% macro donut(items, unit='Sack / kilo') %}
+{% set total = items | sum(attribute='value') %}
+{% set tone_map = {'green': 'var(--green-500)', 'blue': 'var(--blue-500)',
+                   'amber': 'var(--gold-500)', 'violet': 'var(--violet-500)',
+                   'red': 'var(--red-500)'} %}
+{% set ns = namespace(acc=0, stops=[]) %}
+{% for it in items %}
+  {% set start = (ns.acc / total * 100) if total else 0 %}
+  {% set ns.acc = ns.acc + it.value %}
+  {% set end = (ns.acc / total * 100) if total else 0 %}
+  {% set _ = ns.stops.append(tone_map[it.tone] ~ ' ' ~ start|round(2) ~ '% ' ~ end|round(2) ~ '%') %}
+{% endfor %}
+
+<div class="donut-wrap">
+  <div class="donut" style="--donut-stops: {{ ns.stops|join(', ') }}" role="img"
+       aria-label="Waste breakdown: {% for it in items %}{{ it.label }} {{ it.value }} {{ it.unit }}{{ ', ' if not loop.last }}{% endfor %}.">
+    <span class="donut__center">
+      <span class="donut__total">{{ total }}</span>
+      <span class="donut__unit">{{ unit }}</span>
+    </span>
+  </div>
+
+  <ul class="legend">
+    {% for it in items %}
+      <li class="legend__item">
+        <span class="chip__swatch swatch-{{ it.tone }}" aria-hidden="true"></span>
+        <span class="legend__label">{{ it.label }}</span>
+        <span class="legend__value">{{ it.value }} {{ it.unit }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endmacro %}

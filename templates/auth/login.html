@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% from 'partials/icons.html' import icon %}
+{% block title %}Log In{% endblock %}
+
+{% block body %}
+<div class="login">
+
+  {# ---- Brand panel ---------------------------------------------------- #}
+  <section class="login__brand">
+    <img class="login__seal" src="{{ url_for('static', filename='img/logo.jpg') }}"
+         alt="Official seal of the City of Cabadbaran" width="148" height="148">
+
+    <h1 class="login__title">{{ city_name }}</h1>
+    <p class="login__tagline">{{ app_name }}</p>
+
+    <ul class="login__points">
+      <li class="login__point">{{ icon('radar', 'icon--sm') }} Real-time tricycle and truck tracking</li>
+      <li class="login__point">{{ icon('calendar', 'icon--sm') }} Daily segregation schedule per barangay</li>
+      <li class="login__point">{{ icon('leaf', 'icon--sm') }} Household and MRF collection monitoring</li>
+    </ul>
+  </section>
+
+  {# ---- Form panel ------------------------------------------------------
+     One form for every role. The account's own role decides where it lands,
+     so there is nothing for the person signing in to choose.               #}
+  <section class="login__panel">
+    <div class="login__card">
+
+      <div class="login__heading">
+        <h2>Log In</h2>
+        <p>Sign in with the account issued by the City Hall Admin.</p>
+      </div>
+
+      {% if forgot %}
+        <p class="login__alert login__alert--info" role="status">
+          {{ icon('info', 'icon--sm') }}
+          <span>Contact the City Hall Admin to reset your password.</span>
+        </p>
+      {% endif %}
+
+      {% if errors.form %}
+        <p class="login__alert" role="alert">
+          {{ icon('alert', 'icon--sm') }}<span>{{ errors.form }}</span>
+        </p>
+      {% endif %}
+
+      <form class="form" method="post" data-validate novalidate
+            action="{{ url_for('auth.login', next=request.args.get('next')) }}">
+        {{ csrf_field() }}
+
+        <div class="field">
+          <label class="field__label" for="username">Username</label>
+          <input class="field__input" type="text" id="username" name="username"
+                 value="{{ username }}" autocomplete="username" required autofocus
+                 {% if errors.username %}aria-invalid="true" aria-describedby="username-error"{% endif %}
+                 placeholder="Enter your username">
+          {% if errors.username %}
+            <p class="field__error" id="username-error" role="alert">
+              {{ icon('alert', 'icon--sm') }}{{ errors.username }}
+            </p>
+          {% endif %}
+        </div>
+
+        <div class="field field--password">
+          <label class="field__label" for="password">Password</label>
+          <input class="field__input" type="password" id="password" name="password"
+                 autocomplete="current-password" required
+                 {% if errors.password %}aria-invalid="true" aria-describedby="password-error"{% endif %}
+                 placeholder="Enter your password">
+          <button type="button" class="field__reveal" data-reveal="password"
+                  aria-pressed="false" aria-label="Show password">
+            {{ icon('eye', 'icon--sm') }}
+            {{ icon('eye-off', 'icon--sm') }}
+          </button>
+          {% if errors.password %}
+            <p class="field__error" id="password-error" role="alert">
+              {{ icon('alert', 'icon--sm') }}{{ errors.password }}
+            </p>
+          {% endif %}
+        </div>
+
+        <div class="login__options">
+          <label class="choice">
+            <input type="checkbox" name="remember" value="1">
+            <span>Remember me</span>
+          </label>
+          <a class="login__forgot" href="{{ url_for('auth.login', forgot=1) }}">Forgot Password?</a>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--lg btn--block">
+          {{ icon('logout', 'icon--sm') }} Log In
+        </button>
+      </form>
+
+      <hr class="divider">
+
+      {# Residents don't need an account. #}
+      <a class="btn btn--secondary btn--block" href="{{ url_for('public.viewer') }}">
+        {{ icon('calendar', 'icon--sm') }} View the public collection schedule
+      </a>
+
+      <p class="login__foot">
+        © {{ now.year }} City Government of Cabadbaran · Solid Waste Management Office
+      </p>
+    </div>
+  </section>
+</div>
+{% endblock %}

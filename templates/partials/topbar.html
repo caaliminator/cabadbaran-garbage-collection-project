@@ -1,0 +1,113 @@
+{% from 'partials/icons.html' import icon %}
+
+<header class="topbar">
+
+  {# Drawer trigger -- visible below 1024px only #}
+  <button type="button" class="btn btn--icon topbar__toggle"
+          data-nav-toggle aria-expanded="false" aria-controls="rail"
+          aria-label="Open navigation menu">
+    {{ icon('menu') }}
+  </button>
+
+  {# Today's collection type, straight from the schedule #}
+  <div class="topbar__today">
+    <p class="topbar__day">{{ now.strftime('%A') }}</p>
+    <p class="topbar__type">
+      <span class="chip__swatch swatch-{{ today_schedule.tone }}" aria-hidden="true"></span>
+      {{ today_schedule.short }}
+    </p>
+  </div>
+
+  <div class="topbar__spacer"></div>
+
+  <p class="topbar__meta">
+    <strong>{{ today_date }}</strong>
+    <span data-clock>{{ today_time }}</span>
+  </p>
+
+  <span class="live-dot" data-live-indicator data-live-state="off"
+        title="Live updates unavailable" aria-hidden="true"></span>
+
+  <div class="topbar__divider" aria-hidden="true"></div>
+
+  {# ---- Theme switch ---- #}
+  <button type="button" class="btn btn--icon theme-toggle" data-theme-toggle
+          aria-pressed="false" aria-label="Switch to dark theme">
+    {{ icon('sun', 'icon--sun') }}
+    {{ icon('moon', 'icon--moon') }}
+  </button>
+
+  {# ---- Notifications ---- #}
+  <div class="pop">
+    <button type="button" class="btn btn--icon bell"
+            data-pop-trigger aria-controls="notif-panel" aria-expanded="false"
+            aria-label="Notifications{% if unread_count %}, {{ unread_count }} unread{% endif %}">
+      {{ icon('bell') }}
+      {# realtime.js updates this in place as notifications arrive. #}
+      <span class="bell__count" data-unread-count aria-hidden="true"
+            {% if not unread_count %}hidden{% endif %}>{{ unread_count }}</span>
+    </button>
+
+    <div class="pop__panel" id="notif-panel" data-open="false">
+      <div class="pop__head">
+        <span>Alerts &amp; Notifications</span>
+        <span class="badge badge--info">{{ unread_count }} new</span>
+      </div>
+      <div class="pop__list" data-notification-list>
+        {% for a in alerts %}
+          <div class="pop__item {% if a.unread %}pop__item--unread{% endif %}">
+            <span class="stat__icon stat__icon--{{ 'danger' if a.tone == 'danger' else 'warning' if a.tone == 'warning' else 'info' }}"
+                  style="width:32px;height:32px;border-radius:10px">
+              {{ icon(a.icon or 'bell', 'icon--sm') }}
+            </span>
+            <div style="flex:1;min-width:0">
+              <p class="alert-item__title">{{ a.title }}</p>
+              <p class="alert-item__body">{{ a.message }}</p>
+            </div>
+            <time class="alert-item__time">{{ a.time_display }}</time>
+          </div>
+        {% else %}
+          <p class="empty">You're all caught up.</p>
+        {% endfor %}
+      </div>
+      {% if tracking_endpoint %}
+        <div class="pop__foot">
+          <a class="pop__menu-item" href="{{ url_for(tracking_endpoint) }}">
+            {{ icon('radar', 'icon--sm') }} View live tracking
+          </a>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---- User menu ---- #}
+  <div class="pop">
+    <button type="button" class="userchip"
+            data-pop-trigger aria-controls="user-panel" aria-expanded="false">
+      <span class="avatar" aria-hidden="true">{{ user.name|initials }}</span>
+      <span class="userchip__text">
+        <span class="userchip__name">{{ user.name }}</span>
+        <span class="userchip__role">{{ user.role_label }}</span>
+      </span>
+      {{ icon('chevron-down', 'icon--sm') }}
+      <span class="sr-only">Open account menu</span>
+    </button>
+
+    <div class="pop__panel" id="user-panel" data-open="false" style="width:min(260px,calc(100vw - 2rem))">
+      <div class="pop__head" style="display:block">
+        <span style="display:block">{{ user.name }}</span>
+        <span class="text-xs muted" style="font-weight:400">
+          {{ user.role_label }}{% if user.barangay %} · Brgy. {{ user.barangay }}{% endif %}
+        </span>
+      </div>
+      <div style="padding:var(--sp-2)">
+        <a class="pop__menu-item" href="{{ url_for(profile_endpoint) }}">
+          {{ icon('user', 'icon--sm') }} Profile
+        </a>
+        <a class="pop__menu-item pop__menu-item--danger" href="{{ url_for('auth.logout') }}">
+          {{ icon('logout', 'icon--sm') }} Log Out
+        </a>
+      </div>
+    </div>
+  </div>
+</header>

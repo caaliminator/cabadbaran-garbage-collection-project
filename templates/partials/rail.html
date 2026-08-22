@@ -1,0 +1,52 @@
+{% from 'partials/icons.html' import icon %}
+
+{# Off-canvas below 1024px; the scrim sits behind it. #}
+<aside class="rail" id="rail" aria-label="Main navigation">
+
+  <a class="rail__brand" href="{{ url_for(home_endpoint) }}">
+    <img class="rail__seal"
+         src="{{ url_for('static', filename='img/logo.jpg') }}"
+         alt="Official seal of the City of Cabadbaran" width="40" height="40">
+    <span class="rail__brand-text">
+      <span class="rail__city">{{ city_name|upper }}</span>
+      <span class="rail__portal">{{ portal_label }}</span>
+    </span>
+  </a>
+
+  <nav class="rail__nav">
+    {% for section in nav %}
+      <div class="rail__group">
+        {% if section.group %}
+          <p class="rail__group-label" id="nav-{{ loop.index }}">{{ section.group }}</p>
+        {% endif %}
+        <ul {% if section.group %}aria-labelledby="nav-{{ loop.index }}"{% endif %}>
+          {% for endpoint, label, ico in section['items'] %}
+            {% set is_active = request.endpoint == endpoint %}
+            <li>
+              <a class="rail__link {% if endpoint == 'auth.logout' %}rail__link--danger{% endif %}"
+                 href="{{ url_for(endpoint) }}"
+                 {% if is_active %}aria-current="page"{% endif %}>
+                {{ icon(ico, 'icon--sm') }}
+                <span>{{ label }}</span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+  </nav>
+
+  <div class="rail__foot">
+    {% if portal == 'brgy' and barangay %}
+      <p>Assigned to <strong style="color:#fff">Brgy. {{ barangay }}</strong></p>
+    {% elif portal == 'tricycle' %}
+      <p>{{ user.vehicle }} · Brgy. {{ user.barangay }}, <strong style="color:#fff">{{ user.purok }}</strong></p>
+    {% elif portal == 'truck' %}
+      <p>{{ user.vehicle }} · <strong style="color:#fff">{{ user.barangays|length }} MRFs assigned</strong></p>
+    {% else %}
+      <p>Covering <strong style="color:#fff">31 barangays</strong></p>
+    {% endif %}
+  </div>
+</aside>
+
+<div class="scrim" id="scrim" hidden></div>

@@ -1,0 +1,22 @@
+# Runtime data. Never commit these -- data/ holds live records including
+# password hashes, and uploads/ holds photographs of people's property.
+data/
+uploads/
+instance/
+
+# Local Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Design source (large images, not needed to run)
+# Comment this out if you want the mockups in the repo.
+# designs/
