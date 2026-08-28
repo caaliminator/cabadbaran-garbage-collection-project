@@ -8,7 +8,9 @@
   <div>
     <h1 class="page__title">Carry-Over</h1>
     <p class="page__sub">
-      MRF loads that were missed and still need collecting.
+      MRF loads that were missed and still need collecting. A carry-over drops
+      off this list the moment it is collected — the
+      <span class="strong">Collected</span> tab keeps the record.
     </p>
   </div>
 </div>
@@ -38,8 +40,25 @@
 
 <section class="card" data-table-controller="carryTable">
   <div class="toolbar">
-    <h2 class="toolbar__title">Carry-Over Records</h2>
-    {{ filter_select('status', 'All Status', ['Pending', 'Collected']) }}
+    <h2 class="toolbar__title">
+      {{ 'Collected Carry-Overs' if selected_status == 'Collected' else 'Open Carry-Overs' }}
+    </h2>
+
+    {# Links, not a <select>: closed rows are filtered out server-side, so
+       switching has to fetch them rather than unhide something that was
+       never sent. Each view is also a URL an admin can bookmark. #}
+    <div class="segmented" role="tablist" aria-label="Carry-over status">
+      <a class="segmented__btn" role="tab" href="{{ url_for('city.carry_over') }}"
+         aria-selected="{{ 'false' if selected_status == 'Collected' else 'true' }}">
+        Open <span class="sub">{{ counts.pending }}</span>
+      </a>
+      <a class="segmented__btn" role="tab"
+         href="{{ url_for('city.carry_over', status='Collected') }}"
+         aria-selected="{{ 'true' if selected_status == 'Collected' else 'false' }}">
+        Collected <span class="sub">{{ counts.collected }}</span>
+      </a>
+    </div>
+
     {{ filter_select('barangay', 'All Barangay', barangays) }}
   </div>
 
@@ -123,9 +142,15 @@
   </div>
 
   <div data-table-empty {% if rows %}hidden{% endif %}>
-    {{ empty('No carry-overs',
-             'Every MRF pickup has been completed. A missed pickup will appear here automatically.',
-             'check') }}
+    {% if selected_status == 'Collected' %}
+      {{ empty('Nothing collected yet',
+               'Carry-overs move here once the load is finally picked up.',
+               'check') }}
+    {% else %}
+      {{ empty('No open carry-overs',
+               'Every MRF pickup has been completed. A missed pickup will appear here automatically.',
+               'check') }}
+    {% endif %}
   </div>
 
   <div class="card__foot">

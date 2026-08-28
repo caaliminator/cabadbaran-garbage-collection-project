@@ -59,10 +59,7 @@
       map.on('click', () => map.scrollWheelZoom.enable());
       map.on('mouseout', () => map.scrollWheelZoom.disable());
 
-      L.tileLayer(config.tile_url, {
-        attribution: config.attribution,
-        maxZoom: 19,
-      }).addTo(map);
+      const baseLayers = this.basemaps(config, map);
 
       const zoneLayer = L.layerGroup().addTo(map);
       const mrfLayer = L.layerGroup().addTo(map);
@@ -75,12 +72,33 @@
         filter: node.dataset.mapFilter || 'all',
         barangay: node.dataset.mapBarangay || '',
         scope: node.dataset.mapScope || '',
+        locateZoom: Number(node.dataset.mapLocate) || 0,
+        followVehicle: node.dataset.mapFollow || '',
+        markers: {},
       };
+
+      // A drag or a pinch means the viewer has taken over. Geolocation is
+      // slow -- a cold GPS fix can take ten seconds -- and yanking the map
+      // out from under someone who is already reading it is worse than not
+      // centring on them at all.
+      state.map.on('dragstart', () => { state.userMoved = true; });
 
       await this.drawZones(state);
       await this.drawMrfs(state);
 
-      const control = L.control.layers(null, {
+      // One listener for everything that changes with scale: the MRF labels,
+      // and how much of the street layer the zone fills are allowed to cover.
+      const onZoom = () => {
+        this.refreshMrfLabels(state);
+        this.refreshZoomBand(state);
+      };
+      onZoom();
+      map.on('zoomend', onZoom);
+
+      if (state.followVehicle) this.followMe(state);
+      else if (state.locateZoom) this.locate(state);
+
+      const control = L.control.layers(baseLayers, {
         'Barangay zones': zoneLayer,
         'MRF locations': mrfLayer,
         'Live vehicles': vehicleLayer,
@@ -95,8 +113,51 @@
 
       this.drawZoneLegend(state);
       this.wireControls(state);
+      this.wireLiveUpdates(state);
       await this.drawVehicles(state);
+
+      // Still polling. The socket is the fast path, not the only one: it can
+      // be down, and a client that has just reconnected has missed whatever
+      // moved while it was away.
       setInterval(() => this.drawVehicles(state), REFRESH_MS);
+    },
+
+    /* Build the selectable basemaps and add the default one to the map.
+
+       Which providers exist is the server's business, not this file's --
+       swapping OpenStreetMap for a keyed provider is an edit to
+       Config.MAP_BASEMAPS and nothing here. The single-URL response is still
+       honoured so an older/simpler config keeps working.
+
+       A satellite layer is imagery *plus* its place-name tiles: imagery on
+       its own is detailed and unnavigable, because nothing on it is named. */
+    basemaps(config, map) {
+      const defined = (config.basemaps || []).length
+        ? config.basemaps
+        : [{ label: 'Streets', url: config.tile_url,
+             attribution: config.attribution, max_zoom: 19, default: true }];
+
+      const layers = {};
+      let initial = null;
+      defined.forEach((base) => {
+        const maxZoom = base.max_zoom || 19;
+        // maxNativeZoom only when the provider is shallower than the map:
+        // passing undefined leaves Leaflet's default (request every level).
+        const maxNativeZoom = base.max_native_zoom || undefined;
+        const tiles = L.tileLayer(base.url, {
+          attribution: base.attribution,
+          maxZoom,
+          maxNativeZoom,
+        });
+        layers[base.label] = base.label_url
+          ? L.layerGroup([tiles,
+                          L.tileLayer(base.label_url, { maxZoom, maxNativeZoom })])
+          : tiles;
+        if (!initial || base.default) initial = layers[base.label];
+      });
+
+      if (initial) initial.addTo(map);
+      return layers;
     },
 
     fail(node, message) {
@@ -210,9 +271,6 @@
       });
 
       this.refreshMrfLabels(state);
-      state.map.off('zoomend', state.onZoom);
-      state.onZoom = () => this.refreshMrfLabels(state);
-      state.map.on('zoomend', state.onZoom);
 
       if (data.meta.located === 0 && data.meta.total > 0) {
         const existing = state.node.querySelector('[data-map-note]')?.textContent || '';
@@ -229,6 +287,131 @@
         const node = marker.getElement();
         if (node) node.classList.toggle('map-mrf--labelled', show);
       });
+    },
+
+    /* Open on the viewer's own position, when they allow it.
+
+       Deliberately not L.Map.locate(): that fires `locationerror` on every
+       refusal, and a resident declining the prompt is a normal answer, not a
+       fault to report. This asks once, moves the map if it gets an answer,
+       and otherwise leaves the citywide view exactly as it was.
+
+       The browser only offers geolocation on a secure origin -- https, or
+       localhost while developing. Over plain http on a LAN the callback
+       never fires, which is another reason the city view has to stand on its
+       own rather than being a placeholder for this.  */
+    locate(state) {
+      if (!navigator.geolocation) return;
+
+      const done = (message) => this.note(state,
+        [state.node.querySelector('[data-map-note]')?.textContent, message]
+          .filter(Boolean).join(' '));
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (state.userMoved) return;
+          const { latitude: lat, longitude: lng, accuracy } = position.coords;
+
+          state.map.setView([lat, lng], state.locateZoom);
+
+          // A dot plus its accuracy circle, so a 2 km fix does not read as a
+          // doorstep-precise one. Both are plain Leaflet shapes -- there is
+          // no marker image to load and nothing to go missing offline.
+          L.circle([lat, lng], {
+            radius: Math.max(accuracy || 0, 25),
+            className: 'map-here__halo',
+            weight: 1,
+          }).addTo(state.map);
+
+          L.circleMarker([lat, lng], {
+            radius: 7,
+            className: 'map-here__dot',
+            weight: 3,
+          })
+            .bindPopup('You are here')
+            .addTo(state.map);
+        },
+        () => {
+          // Denied, unavailable, or timed out. All three mean the same thing
+          // to the map: stay on the city.
+          done('Showing the whole city — location sharing is off.');
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+    },
+
+    /* A collector's own map, following their own phone.
+
+       Their marker also arrives over the socket like everyone else's, but
+       that round trip only happens while they are On Duty and only every few
+       seconds. Watching the device directly means the map tracks them from
+       the moment the page opens, off duty included, and keeps moving if the
+       socket drops.
+
+       `watchPosition`, not a `setInterval` around `getCurrentPosition`: the
+       browser hands over a new fix when the device actually moves, which on
+       a phone in a pocket is far cheaper than asking on a timer. */
+    followMe(state) {
+      if (!navigator.geolocation) {
+        this.note(state, 'This device cannot report its location.');
+        return;
+      }
+
+      let marker = null;
+      let halo = null;
+      let centred = false;
+
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude: lat, longitude: lng, accuracy } = position.coords;
+          const point = [lat, lng];
+
+          if (!marker) {
+            halo = L.circle(point, {
+              radius: Math.max(accuracy || 0, 25),
+              className: 'map-here__halo',
+              weight: 1,
+            }).addTo(state.map);
+            marker = L.circleMarker(point, {
+              radius: 8,
+              className: 'map-here__dot',
+              weight: 3,
+            }).bindPopup('Your position').addTo(state.map);
+          } else {
+            marker.setLatLng(point);
+            halo.setLatLng(point).setRadius(Math.max(accuracy || 0, 25));
+          }
+
+          // Snap to them once on the first fix; after that follow only while
+          // they have not taken the map somewhere themselves.
+          if (!centred) {
+            state.map.setView(point, state.locateZoom || 16);
+            centred = true;
+          } else if (!state.userMoved) {
+            state.map.panTo(point);
+          }
+        },
+        (error) => {
+          this.note(state, error && error.code === 1
+            ? 'Location is blocked for this site. The map cannot follow you '
+              + 'until you allow it in your browser settings.'
+            : 'Your location is unavailable right now.');
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+    },
+
+    /* Which scale the map is being read at, published to CSS as a data
+       attribute on the map container.
+
+       Zone fills are a city-scale device: 31 coloured sheets are what makes
+       the city legible from above, and the same sheets are what hide the
+       roads once you are down among them. Rather than switching the layer
+       off, the fills step back as the scale closes in -- the barangay stays
+       identifiable, and its streets come through underneath. The thresholds
+       are named rather than numeric so the CSS reads as intent. */
+    refreshZoomBand(state) {
+      const zoom = state.map.getZoom();
+      state.node.dataset.mapZoom =
+        zoom >= 17 ? 'street' : zoom >= 15 ? 'near' : 'city';
     },
 
     /* Zoom to one barangay and fade the others back. */
@@ -262,7 +445,7 @@
       (state.config.zone_groups || []).forEach((group) => {
         const item = el('span', 'map__legend-item');
         item.appendChild(el('span', `map__legend-dot map__legend-dot--${group.key}`));
-        item.appendChild(el('span', 'text-2xs', group.label));
+        item.appendChild(el('span', null, group.label));
         slot.appendChild(item);
       });
     },
@@ -304,18 +487,104 @@
         return;   // a dropped poll is not worth disturbing the map for
       }
 
-      state.vehicleLayer.clearLayers();
+      // The poll is the authority on *which* vehicles belong on the map --
+      // it is the only thing that ever removes one. Between polls the socket
+      // moves the markers it already knows about.
+      const seen = new Set();
       data.vehicles.forEach((v) => {
-        L.marker([v.lat, v.lng], { icon: this.icon(v.kind, v.vehicle) })
-          .bindPopup(
-            `<strong>${v.vehicle}</strong>` +
-            (v.name ? `<br>${v.name}` : '') +
-            (v.barangays && v.barangays.length ? `<br>${v.barangays.join(', ')}` : '')
-          )
-          .addTo(state.vehicleLayer);
+        seen.add(v.vehicle);
+        this.placeVehicle(state, v);
+      });
+      Object.keys(state.markers).forEach((code) => {
+        if (!seen.has(code)) this.dropVehicle(state, code);
       });
 
+      state.counts = data.counts;
       this.updateLegend(state, data);
+    },
+
+    /* Put a vehicle on the map, or move the marker that is already there.
+
+       Moving beats redrawing: a marker rebuilt from scratch every few seconds
+       loses its open popup, flickers, and makes a truck look like it is
+       teleporting rather than driving down a road. */
+    placeVehicle(state, v) {
+      if (v.lat == null || v.lng == null) return;
+
+      const existing = state.markers[v.vehicle];
+      if (existing) {
+        existing.setLatLng([v.lat, v.lng]);
+        if (v.name || v.barangays) existing.setPopupContent(this.vehiclePopup(v));
+        return existing;
+      }
+
+      const marker = L.marker([v.lat, v.lng], { icon: this.icon(v.kind, v.vehicle) })
+        .bindPopup(this.vehiclePopup(v))
+        .addTo(state.vehicleLayer);
+      marker.gctsKind = v.kind;
+      state.markers[v.vehicle] = marker;
+      return marker;
+    },
+
+    clearVehicles(state) {
+      Object.keys(state.markers).forEach((code) => this.dropVehicle(state, code));
+    },
+
+    dropVehicle(state, code) {
+      const marker = state.markers[code];
+      if (!marker) return;
+      state.vehicleLayer.removeLayer(marker);
+      delete state.markers[code];
+    },
+
+    vehiclePopup(v) {
+      return `<strong>${v.vehicle}</strong>` +
+        (v.name ? `<br>${v.name}` : '') +
+        (v.barangays && v.barangays.length ? `<br>${v.barangays.join(', ')}` : '');
+    },
+
+    /* Does a live payload belong on this map as it is currently filtered?
+
+       The socket broadcasts every vehicle in the city to the public room, so
+       the filtering the API does server-side has to be repeated here --
+       otherwise choosing a barangay would hold only until the next position
+       arrived and put the whole fleet back. */
+    passesFilter(state, v) {
+      if (state.filter === 'tricycles' && v.kind !== 'tricycle') return false;
+      if (state.filter === 'trucks' && v.kind !== 'truck') return false;
+      if (state.barangay && !(v.barangay_ids || []).includes(state.barangay)) {
+        return false;
+      }
+      return true;
+    },
+
+    /* Positions arriving over the socket, between polls. */
+    wireLiveUpdates(state) {
+      document.addEventListener('gcts:location', (event) => {
+        const v = event.detail || {};
+        if (!v.vehicle) return;
+
+        if (!this.passesFilter(state, v)) {
+          this.dropVehicle(state, v.vehicle);
+          return;
+        }
+        this.placeVehicle(state, v);
+
+        // A collector watching their own map rides along with the marker.
+        if (state.followVehicle && v.vehicle === state.followVehicle
+            && !state.userMoved) {
+          state.map.setView([v.lat, v.lng], state.map.getZoom());
+        }
+      });
+
+      // Going off duty takes the marker away immediately rather than leaving
+      // it parked until the next poll notices.
+      document.addEventListener('gcts:duty', (event) => {
+        const v = event.detail || {};
+        if (!v.vehicle) return;
+        if (v.on_duty) this.drawVehicles(state);
+        else this.dropVehicle(state, v.vehicle);
+      });
     },
 
     icon(kind, label) {
@@ -345,6 +614,41 @@
           ? `${data.counts.without_position} on duty without a recent position`
           : '';
       }
+
+      this.describeFilter(state, data);
+    },
+
+    /* What the map is showing right now, in a sentence.
+
+       A resident who picks their barangay and sees an empty map needs to know
+       whether that means "nobody is collecting here yet today" or "the filter
+       is broken". Counting is not enough; the empty case is the one that has
+       to speak. */
+    describeFilter(state, data) {
+      const slot = state.node.querySelector('[data-map-summary]');
+      if (!slot) return;
+
+      const label = state.node.querySelector('[data-map-barangay]');
+      const place = state.barangay && label
+        ? label.options[label.selectedIndex].text
+        : '';
+      const kind = state.filter === 'tricycles' ? 'tricycle'
+        : state.filter === 'trucks' ? 'truck' : 'vehicle';
+      const shown = (state.filter === 'tricycles' ? data.counts.tricycles
+        : state.filter === 'trucks' ? data.counts.trucks
+        : data.counts.total) || 0;
+
+      if (!place) {
+        slot.textContent = shown
+          ? `${shown} ${kind}${shown === 1 ? '' : 's'} working across the city.`
+          : 'No collectors are on duty in the city right now.';
+        return;
+      }
+
+      slot.textContent = shown
+        ? `${shown} ${kind}${shown === 1 ? '' : 's'} working in ${place} right now.`
+        : `No ${kind} is on duty in ${place} right now. `
+          + 'The marker appears as soon as the collector starts their shift.';
     },
 
     /* ---- Controls ------------------------------------------------------ */
@@ -356,6 +660,7 @@
             b.setAttribute('aria-selected', String(b === btn));
           });
           state.filter = btn.dataset.mapTab;
+          this.clearVehicles(state);
           this.drawVehicles(state);
         });
       });
@@ -364,6 +669,13 @@
       if (select) {
         select.addEventListener('change', () => {
           state.barangay = select.value;
+          // Drop what is on the map before asking for the new set: the old
+          // barangay's vehicles are no longer in scope and should go now,
+          // not whenever the reply happens to land.
+          this.clearVehicles(state);
+          // A deliberate choice of barangay is not the viewer drifting away
+          // from their own position -- let the map fit to it.
+          state.userMoved = false;
           this.drawVehicles(state);
           if (state.config.hotspot_layer_enabled) this.drawHotspots(state);
           if (state.barangay) this.focusBarangay(state, state.barangay);

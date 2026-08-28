@@ -10,7 +10,7 @@ tmp = Path(tempfile.mkdtemp(prefix="gcts-p2-"))
 Config.DATA_DIR, Config.GEO_DIR, Config.UPLOAD_DIR = tmp, tmp / "geo", tmp / "up"
 
 from services import (assignment_service, schedule_service, storage,
-                      user_service, vehicle_service)
+                      timeutil, user_service, vehicle_service)
 from services.validation import ValidationError
 import seed
 
@@ -142,44 +142,47 @@ for i in range(1, 4):
                                   "assigned_vehicle": f"TRI-1{i}", "password": "goodpass1",
                                   "confirm_password": "goodpass1"}, ADMIN)
 
+TODAY = timeutil.today_str()
+
+
 class Form(dict):
     def getlist(self, k):
         v = self.get(k, [])
         return v if isinstance(v, list) else [v]
 
 a1, warn = assignment_service.save_tricycle_assignment(Form({
-    "collector_id": ops[1]["id"], "barangay_id": B1,
-    "purok_coverage": ["Purok 1", "Purok 2"], "tricycle_code": "TRI-02",
-    "status": "Active", "note": ""}), None, ADMIN)
+    "collector_id": ops[1]["id"], "barangay_id": B1, "tricycle_code": "TRI-02",
+    "effective_date": TODAY, "status": "Active", "note": ""}), None, ADMIN)
 ok("assignment saved", a1["barangay_id"] == B1)
+ok("effectivity date stored", a1["effective_date"] == TODAY)
 ok("no spurious warnings on a clean save", warn == [])
 ok("account mirrors the assignment",
-   storage.get("users", ops[1]["id"])["assigned_puroks"] == ["Purok 1", "Purok 2"])
+   storage.get("users", ops[1]["id"])["assigned_barangay"] == B1)
 
 fails("one active assignment per collector",
       lambda: assignment_service.save_tricycle_assignment(Form({
           "collector_id": ops[1]["id"], "barangay_id": B2,
-          "purok_coverage": ["Purok 1"], "tricycle_code": "TRI-03",
+          "tricycle_code": "TRI-03", "effective_date": TODAY,
           "status": "Active"}), None, ADMIN), "collector_id", "already holds")
 
 fails("one active assignment per unit",
       lambda: assignment_service.save_tricycle_assignment(Form({
           "collector_id": ops[2]["id"], "barangay_id": B1,
-          "purok_coverage": ["Purok 3"], "tricycle_code": "TRI-02",
+          "tricycle_code": "TRI-02", "effective_date": TODAY,
           "status": "Active"}), None, ADMIN), "tricycle_code", "already assigned")
 
-fails("purok must belong to the chosen barangay",
+fails("a date of effectivity is required",
       lambda: assignment_service.save_tricycle_assignment(Form({
           "collector_id": ops[2]["id"], "barangay_id": B1,
-          "purok_coverage": ["Purok 99"], "tricycle_code": "TRI-03",
-          "status": "Active"}), None, ADMIN), "purok_coverage")
+          "tricycle_code": "TRI-03", "status": "Active"}), None, ADMIN),
+      "effective_date")
 
 _, warn = assignment_service.save_tricycle_assignment(Form({
-    "collector_id": ops[2]["id"], "barangay_id": B1,
-    "purok_coverage": ["Purok 2", "Purok 3"], "tricycle_code": "TRI-03",
-    "status": "Active"}), None, ADMIN)
-ok("overlapping purok warns but still saves",
-   warn and "Purok 2" in warn[0] and storage.count("assignments_tricycle") == 2)
+    "collector_id": ops[2]["id"], "barangay_id": B1, "tricycle_code": "TRI-03",
+    "effective_date": TODAY, "status": "Active"}), None, ADMIN)
+ok("a second collector on the same barangay warns but still saves",
+   warn and "also covered by" in warn[0]
+   and storage.count("assignments_tricycle") == 2)
 
 counts = assignment_service.tricycle_counts()
 ok("counters reflect reality",
@@ -201,7 +204,7 @@ for i in range(1, 4):
 t1, warn = assignment_service.save_truck_assignment(Form({
     "operator_id": tops[1]["id"], "truck_code": "TRK-01",
     "covered_mrfs": ["brgy-01", "brgy-02", "brgy-03", "brgy-04"],
-    "status": "Active", "planned_time__brgy-01": "08:30"}), None, ADMIN)
+    "effective_date": timeutil.today_str(), "status": "Active", "planned_time__brgy-01": "08:30"}), None, ADMIN)
 ok("truck assignment saved with 4 MRFs", len(t1["covered_mrfs"]) == 4)
 ok("planned pickup time stored", t1["planned_pickup_times"]["brgy-01"] == "08:30")
 ok("uncovered barangays are reported after saving",
@@ -210,18 +213,18 @@ ok("uncovered barangays are reported after saving",
 fails("bad pickup time rejected",
       lambda: assignment_service.save_truck_assignment(Form({
           "operator_id": tops[2]["id"], "truck_code": "TRK-02",
-          "covered_mrfs": ["brgy-05"], "status": "Active",
+          "covered_mrfs": ["brgy-05"], "effective_date": timeutil.today_str(), "status": "Active",
           "planned_time__brgy-05": "25:99"}), None, ADMIN), "planned_time__brgy-05")
 
 fails("one active assignment per operator",
       lambda: assignment_service.save_truck_assignment(Form({
           "operator_id": tops[1]["id"], "truck_code": "TRK-02",
-          "covered_mrfs": ["brgy-05"], "status": "Active"}), None, ADMIN),
+          "covered_mrfs": ["brgy-05"], "effective_date": timeutil.today_str(), "status": "Active"}), None, ADMIN),
       "operator_id", "already holds")
 
 _, warn = assignment_service.save_truck_assignment(Form({
     "operator_id": tops[2]["id"], "truck_code": "TRK-02",
-    "covered_mrfs": ["brgy-04", "brgy-05"], "status": "Active"}), None, ADMIN)
+    "covered_mrfs": ["brgy-04", "brgy-05"], "effective_date": timeutil.today_str(), "status": "Active"}), None, ADMIN)
 ok("double-covered barangay warns but saves",
    any("also covered by" in w for w in warn))
 
@@ -234,7 +237,7 @@ ok("not reported as fully covered", tc["fully_covered"] is False)
 all_b = [f"brgy-{n:02d}" for n in range(1, 32)]
 assignment_service.save_truck_assignment(Form({
     "operator_id": tops[3]["id"], "truck_code": "TRK-03",
-    "covered_mrfs": all_b[5:], "status": "Active"}), None, ADMIN)
+    "covered_mrfs": all_b[5:], "effective_date": timeutil.today_str(), "status": "Active"}), None, ADMIN)
 tc = assignment_service.truck_counts()
 ok("full coverage detected once every MRF is assigned",
    tc["fully_covered"] and tc["mrfs_covered"] == 31 and tc["uncovered"] == [])

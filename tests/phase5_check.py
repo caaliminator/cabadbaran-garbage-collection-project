@@ -62,8 +62,9 @@ col = user_service.create({"full_name": "Col One", "username": "col_one",
                            "assigned_vehicle": "TRI-01", "password": "goodpass1",
                            "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_tricycle_assignment(Form({
-    "collector_id": col["id"], "barangay_id": B1, "purok_coverage": ["Purok 1"],
-    "tricycle_code": "TRI-01", "status": "Active"}), None, ADMIN)
+    "collector_id": col["id"], "barangay_id": B1,
+    "tricycle_code": "TRI-01", "effective_date": timeutil.today_str(),
+    "status": "Active"}), None, ADMIN)
 COL = public_view(storage.get("users", col["id"]))
 
 print("\n[1] barangay scoping")

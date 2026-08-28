@@ -90,6 +90,20 @@
           </p>
         </div>
 
+        <div class="field">
+          <label class="field__label" for="effective_date">
+            Date of Effectivity<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required)</span>
+          </label>
+          <input class="field__input" type="date" id="effective_date" name="effective_date"
+                 required value="{{ now.strftime('%Y-%m-%d') }}"
+                 aria-describedby="effective-hint">
+          <p class="field__hint" id="effective-hint">
+            The day this operator starts working the route. A future date is
+            allowed -- use it to line up a handover in advance.
+          </p>
+        </div>
+
         {{ radios('status', 'Status', ['Active', 'Temporary Replacement'], required=True) }}
       </div>
 
@@ -159,6 +173,7 @@
             {{ th('Username') }}
             {{ th('Covered Barangay MRF') }}
             {{ th('Assigned Truck', 'truck') }}
+            {{ th('Effective From', 'effective') }}
             {{ th('Availability', 'availability') }}
             {{ th('Status', 'status') }}
             <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
@@ -167,7 +182,8 @@
         <tbody>
           {% for r in rows %}
             <tr data-status="{{ r.status }}" data-availability="{{ r.availability }}"
-                data-operator="{{ r.operator }}" data-truck="{{ r.truck }}">
+                data-operator="{{ r.operator }}" data-truck="{{ r.truck }}"
+                data-effective="{{ r.effective_date }}">
               <td data-label="Operator"><span class="strong">{{ r.operator }}</span></td>
               <td data-label="Username"><span class="mono">{{ r.username }}</span></td>
               <td data-label="Covered MRFs">
@@ -177,6 +193,12 @@
                 <span class="sub">{{ r.mrfs|length }} MRF{{ '' if r.mrfs|length == 1 else 's' }}</span>
               </td>
               <td data-label="Truck"><span class="mono">{{ r.truck }}</span></td>
+              <td data-label="Effective From">
+                {{ r.effective_display }}
+                {% if r.pending_start %}
+                  <span class="badge badge--info">Scheduled</span>
+                {% endif %}
+              </td>
               <td data-label="Availability">{{ status(r.availability) }}</td>
               <td data-label="Status">{{ status(r.status) }}</td>
               <td class="table__actions">
@@ -187,6 +209,7 @@
                           data-set-truck="{{ r.truck }}"
                           data-set-mrfs="{{ r.mrfs|join(', ') or 'None' }}"
                           data-set-times="{% for b, t in r.planned_pickup_times.items() %}{{ t }}{% if not loop.last %}, {% endif %}{% else %}Not set{% endfor %}"
+                          data-set-effective="{{ r.effective_display }}"
                           data-set-availability="{{ r.availability }}"
                           data-set-status="{{ r.status }}"
                           data-set-note="{{ r.note or 'No notes recorded.' }}"
@@ -200,6 +223,7 @@
                           data-set-title="{{ r.operator }}"
                           data-set-operator_id="{{ r.operator_id }}"
                           data-set-truck_code="{{ r.truck }}"
+                          data-set-effective_date="{{ r.effective_date }}"
                           data-set-status="{{ r.status }}"
                           data-set-note="{{ r.note }}"
                           data-set-mrfs="{{ r.mrf_ids|join(',') }}"
@@ -239,6 +263,7 @@
     <div class="modal__body stack">
       <div class="grid grid--2">
         <div class="kv"><span class="kv__key">Assigned Truck</span><span class="kv__val mono" data-fill="truck">—</span></div>
+        <div class="kv"><span class="kv__key">Effective From</span><span class="kv__val" data-fill="effective">—</span></div>
         <div class="kv"><span class="kv__key">Availability</span><span class="kv__val" data-fill="availability">—</span></div>
         <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
         <div class="kv"><span class="kv__key">Planned Times</span><span class="kv__val" data-fill="times">—</span></div>
@@ -284,6 +309,12 @@
                   required data-fill-value="truck_code">
             {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
           </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="edit_trk_effective_date">Date of Effectivity</label>
+          <input class="field__input" type="date" id="edit_trk_effective_date"
+                 name="effective_date" required data-fill-value="effective_date">
         </div>
 
         <div class="field">

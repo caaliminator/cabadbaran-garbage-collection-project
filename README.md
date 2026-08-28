@@ -26,12 +26,43 @@ Run them in that order. `make_demo_geo.py` has to come before
 are derived from the barangay coordinates — without it the map has nothing to
 draw and the vehicles have nowhere to stand.
 
+Only the last line is strictly required. Against a fresh clone or a wiped
+`data/`, `python app.py` runs the first two steps itself before serving a
+request: it seeds the accounts if there are none, and writes the illustrative
+map geometry if `data/geo/` is still stubs. So the logins work offline, and
+the map has barangay shapes to draw and to zoom to. `make_demo_day.py` is the
+one step it does not do — that is the week of activity, and it stays opt-in.
+Set `AUTO_SEED=0` to turn the automatic pass off entirely.
+
 Then open <http://127.0.0.1:5000> — or <http://127.0.0.1:5000/public/> for the
 citizen-facing page, which needs no login.
 
 **Logins:** `city_admin`, `brgy_admin`, `tri_collector`, `truck_collector` —
 all with the password `Cabadbaran2026`. Full table and how to change it:
 [docs/CREDENTIALS.md](docs/CREDENTIALS.md).
+
+### Starting on real data
+
+`tools/reset_data.py` clears the sample records and leaves a store you can put
+real data into:
+
+```bash
+python tools/reset_data.py --dry-run   # list what would go, change nothing
+python tools/reset_data.py             # do it, after a confirmation
+```
+
+It removes every operational record — properties, collection entries, MRF
+pickups, deliveries, carry-overs, reports, notifications, history, both
+assignment tables, and the image proofs — plus the generated `brgy01_admin` /
+`tri01` / `trk01` cast from `make_demo_day.py`. It keeps the four real logins
+and the reference data the system cannot start without: the 31 barangays, the
+vehicle registry, and the weekly schedule.
+
+**On Render this is not enough on its own.** The start command in
+`render.yaml` re-runs `seed.py --demo` and `make_demo_day.py` on every boot,
+which is right for a demo and wrong for real use. Drop those two commands from
+`startCommand` and give the service a persistent disk — see the "Running it
+for real" section of [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Why the demo-data step
 

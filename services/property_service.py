@@ -64,14 +64,13 @@ def listing(barangay_id: str | None = None, puroks: list[str] | None = None,
 
 def for_collector(assignment: dict | None) -> list[dict]:
     """
-    The route list for one tricycle collector: their barangay, narrowed to the
-    puroks they cover. No assignment means no route -- never the whole barangay.
+    The route list for one tricycle collector: every property in the barangay
+    they are assigned to. No assignment means no route -- an unassigned
+    collector sees nothing, not everything.
     """
     if not assignment:
         return []
-    return listing(barangay_id=assignment.get("barangay_id"),
-                   puroks=assignment.get("purok_coverage") or [],
-                   newest_first=False)
+    return listing(barangay_id=assignment.get("barangay_id"), newest_first=False)
 
 
 def count_for(barangay_id: str | None = None) -> int:

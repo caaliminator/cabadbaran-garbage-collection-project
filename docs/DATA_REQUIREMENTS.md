@@ -21,8 +21,8 @@ Exactly two numbers per barangay, and one of them is optional at first.
 
 Nothing else. Vehicle positions come from the collectors' phones at runtime,
 the zone colours are derived from the barangay numbers, and the map background
-is free OpenStreetMap tiles. There is no paid map service and no API key
-anywhere in this system.
+is free OpenStreetMap or Esri satellite tiles. There is no paid map service and
+no API key anywhere in this system.
 
 **Start with #1.** Thirty-one coordinates is an afternoon's work and it lights
 up the MRF markers and the arrival alerts. Boundaries can come later — and if
@@ -408,4 +408,21 @@ To be clear about scope — none of these require external data files:
 - **Purok lists** live in `data/barangays.json` and are editable through the
   admin UI (currently seeded as Purok 1–7 for every barangay — correct these
   whenever you have the real lists).
-- **The map background** is OpenStreetMap tiles, free and keyless.
+- **The map background** is one of two keyless basemaps, chosen from the
+  layer control in the map's top-right corner and configured in
+  `Config.MAP_BASEMAPS`:
+
+  | Basemap | Source | Detail over Cabadbaran |
+  |---|---|---|
+  | Streets *(default)* | OpenStreetMap | Whatever volunteers have mapped — good in the Poblacion, thin in the outer barangays. Named streets, to z19. |
+  | Satellite | Esri World Imagery + Esri place labels | The ground as it is, no mapping required. Real imagery to z18; z19 is an upscale of it. |
+
+  Neither needs an API key or a bill. If OSM's street coverage is the gap,
+  the durable fix is to add the missing roads to OpenStreetMap itself — the
+  app picks them up with no change, and the city keeps the data.
+
+  **Google is not a URL swap.** Google's terms do not allow its tiles to be
+  loaded into Leaflet; using Google means their Maps JavaScript API with a
+  billing-enabled key, which is a second map library on the page. A keyed
+  raster provider (MapTiler, Thunderforest, Stadia) *is* a URL swap — one
+  more entry in `MAP_BASEMAPS`.

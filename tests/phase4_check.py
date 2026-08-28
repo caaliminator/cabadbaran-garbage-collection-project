@@ -55,8 +55,9 @@ col = user_service.create({"full_name": "Tri One", "username": "tri_a",
                            "assigned_vehicle": "TRI-01", "password": "goodpass1",
                            "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_tricycle_assignment(Form({
-    "collector_id": col["id"], "barangay_id": B1, "purok_coverage": ["Purok 1"],
-    "tricycle_code": "TRI-01", "status": "Active"}), None, ADMIN)
+    "collector_id": col["id"], "barangay_id": B1,
+    "tricycle_code": "TRI-01", "effective_date": timeutil.today_str(),
+    "status": "Active"}), None, ADMIN)
 COL = public_view(storage.get("users", col["id"]))
 
 op = user_service.create({"full_name": "Truck One", "username": "trk_a",
@@ -64,7 +65,8 @@ op = user_service.create({"full_name": "Truck One", "username": "trk_a",
                           "password": "goodpass1", "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_truck_assignment(Form({
     "operator_id": op["id"], "truck_code": "TRK-01",
-    "covered_mrfs": [B1, B2, B3], "status": "Active"}), None, ADMIN)
+    "covered_mrfs": [B1, B2, B3], "effective_date": timeutil.today_str(),
+    "effective_date": timeutil.today_str(), "status": "Active"}), None, ADMIN)
 OP = public_view(storage.get("users", op["id"]))
 
 op2 = user_service.create({"full_name": "Truck Two", "username": "trk_b",
@@ -72,7 +74,8 @@ op2 = user_service.create({"full_name": "Truck Two", "username": "trk_b",
                            "password": "goodpass1", "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_truck_assignment(Form({
     "operator_id": op2["id"], "truck_code": "TRK-02",
-    "covered_mrfs": ["brgy-10"], "status": "Active"}), None, ADMIN)
+    "covered_mrfs": ["brgy-10"], "effective_date": timeutil.today_str(),
+    "effective_date": timeutil.today_str(), "status": "Active"}), None, ADMIN)
 OP2 = public_view(storage.get("users", op2["id"]))
 
 def household(name, barangay=B1, purok="Purok 1"):

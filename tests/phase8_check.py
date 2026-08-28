@@ -54,8 +54,9 @@ col = user_service.create({"full_name": "Col 8", "username": "col_eight",
                            "assigned_vehicle": "TRI-01", "password": "goodpass1",
                            "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_tricycle_assignment(Form({
-    "collector_id": col["id"], "barangay_id": B1, "purok_coverage": ["Purok 1"],
-    "tricycle_code": "TRI-01", "status": "Active"}), None, ADMIN)
+    "collector_id": col["id"], "barangay_id": B1,
+    "tricycle_code": "TRI-01", "effective_date": timeutil.today_str(),
+    "status": "Active"}), None, ADMIN)
 COL = public_view(storage.get("users", col["id"]))
 
 op = user_service.create({"full_name": "Op 8", "username": "op_eight",
@@ -63,7 +64,8 @@ op = user_service.create({"full_name": "Op 8", "username": "op_eight",
                           "password": "goodpass1", "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_truck_assignment(Form({
     "operator_id": op["id"], "truck_code": "TRK-01", "covered_mrfs": [B1, B2],
-    "status": "Active"}), None, ADMIN)
+    "effective_date": timeutil.today_str(),
+    "effective_date": timeutil.today_str(), "status": "Active"}), None, ADMIN)
 OP = public_view(storage.get("users", op["id"]))
 
 p1 = property_service.create(Form({"owner_name": "Alpha House", "type": "House",

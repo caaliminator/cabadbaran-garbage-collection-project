@@ -404,6 +404,10 @@ def city_listing(date=None, barangay_id=None, truck=None, status=None) -> list[d
     recorded = {r["barangay_id"]: r for r in storage.find("mrf_pickups", date=day)}
     operators = {u["id"]: u.get("full_name") for u in storage.read("users")}
 
+    from services import geo_service
+    mrf_points = {m["barangay_id"]: m
+                  for m in geo_service.mrf_locations().get("mrfs", [])}
+
     rows = []
     for barangay in sorted(storage.read("barangays"), key=lambda b: b.get("number", 0)):
         card = mrf_card(barangay["id"], day)
@@ -416,14 +420,47 @@ def city_listing(date=None, barangay_id=None, truck=None, status=None) -> list[d
         if truck and (entry or {}).get("truck_code") != truck:
             continue
 
+        stamp = (entry or {}).get("timestamp")
         rows.append({
             **card,
             "truck": (entry or {}).get("truck_code") or _expected_truck(barangay["id"]),
             "operator": operators.get((entry or {}).get("operator_id")) or "—",
             "auto_missed": bool((entry or {}).get("auto_missed")),
-            "timestamp": (entry or {}).get("timestamp"),
+            "timestamp": stamp,
+            "date_display": timeutil.display_date(day),
+            # Blank until a truck records something -- a Pending MRF has no
+            # time and no place, and "—" is the honest value for both.
+            "time_display": timeutil.display_time(timeutil.parse_stamp(stamp)) if stamp else "",
+            "location": _pickup_location(barangay["id"], entry, mrf_points),
         })
     return rows
+
+
+def _pickup_location(barangay_id: str, entry: dict | None,
+                     mrf_points: dict) -> dict:
+    """
+    Where a pickup happened, from two independent sources.
+
+    The MRF's own registered coordinates say where the facility is; the GPS
+    the truck captured says where the operator actually stood when they
+    recorded it. They are usually the same place and occasionally are not,
+    which is exactly why both are kept rather than one overwriting the other.
+    """
+    point = mrf_points.get(barangay_id) or {}
+    captured = (entry or {}).get("gps") or None
+
+    return {
+        "name": point.get("name") or "",
+        "lat": point.get("lat"),
+        "lng": point.get("lng"),
+        "captured": captured,
+        "coords": (f"{captured['lat']}, {captured['lng']}" if captured
+                   else (f"{point['lat']}, {point['lng']}"
+                         if point.get("lat") is not None else "")),
+        "source": ("Captured at the stop" if captured
+                   else "Registered MRF location" if point.get("lat") is not None
+                   else ""),
+    }
 
 
 def _expected_truck(barangay_id: str) -> str:

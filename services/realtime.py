@@ -180,17 +180,24 @@ def schedule_updated() -> None:
     emit_to(PUBLIC, "schedule_updated", {})
 
 
+def _covered(user: dict) -> list[str]:
+    """Every barangay a collector serves, primary first, no duplicates."""
+    covered = list(user.get("barangay_ids") or [])
+    if user.get("barangay_id"):
+        covered = [user["barangay_id"]] + [b for b in covered
+                                           if b != user["barangay_id"]]
+    return list(dict.fromkeys(covered))
+
+
 def collector_status(user: dict, on_duty: bool) -> None:
     """Drives the Active Now counters and shows/hides the map marker."""
     payload = {
         "vehicle": user.get("vehicle"),
         "kind": "truck" if user.get("role") == "truck_collector" else "tricycle",
+        "barangay_ids": _covered(user),
         "on_duty": on_duty,
     }
-    rooms = [PUBLIC, CITY]
-    rooms += [barangay_room(b) for b in (user.get("barangay_ids") or [])]
-    if user.get("barangay_id"):
-        rooms.append(barangay_room(user["barangay_id"]))
+    rooms = [PUBLIC, CITY] + [barangay_room(b) for b in _covered(user)]
     emit_many(rooms, "collector_status", payload)
 
 
@@ -201,17 +208,21 @@ def location_update(user: dict, lat: float, lng: float) -> None:
     The public payload carries the vehicle code and nothing that identifies a
     person -- residents need to see where the truck is, not who is driving it.
     Admin rooms get the name as well.
+
+    It does carry which barangays the vehicle serves. That is public
+    information already -- it is the collection schedule -- and without it a
+    resident who has filtered the map to their own barangay would see every
+    vehicle in the city jump onto it the moment a live position arrived.
     """
     public_payload = {
         "vehicle": user.get("vehicle"),
         "kind": "truck" if user.get("role") == "truck_collector" else "tricycle",
+        "barangay_ids": _covered(user),
         "lat": lat,
         "lng": lng,
     }
     emit_to(PUBLIC, "location_update", public_payload)
 
     named = {**public_payload, "id": user.get("id"), "name": user.get("name")}
-    rooms = [CITY] + [barangay_room(b) for b in (user.get("barangay_ids") or [])]
-    if user.get("barangay_id"):
-        rooms.append(barangay_room(user["barangay_id"]))
+    rooms = [CITY] + [barangay_room(b) for b in _covered(user)]
     emit_many(rooms, "location_update", named)

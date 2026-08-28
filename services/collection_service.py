@@ -250,6 +250,10 @@ def save_entry(form, files, property_record: dict, collector: dict,
             v.fail("waste", "Record at least one waste quantity greater than zero.")
     else:
         v.choice("reason", "Reason", NOT_COLLECTED_REASONS)
+        # Where, in words. The GPS fix is optional -- it needs a signal and a
+        # deliberate tap -- so on its own it leaves plenty of refusals with no
+        # location at all. This is the half that is always answerable.
+        v.text("location", "Location", required=True, max_length=160)
         # Spec 6.4 requires photo evidence for a household refusal: it is what
         # the barangay admin reviews when a resident disputes the entry.
         upload = files.get("proof") if files else None
@@ -275,6 +279,7 @@ def save_entry(form, files, property_record: dict, collector: dict,
         "timestamp": timeutil.stamp(),
         "waste": waste,
         "reason": v.data.get("reason", "") if status == NOT_COLLECTED else "",
+        "location": v.data.get("location", "") if status == NOT_COLLECTED else "",
         "image_proof_path": proof_path if status == NOT_COLLECTED else None,
         "note": v.data["note"],
         "source": SOURCE_COLLECTOR,

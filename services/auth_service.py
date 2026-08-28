@@ -231,8 +231,6 @@ def public_view(user: dict) -> dict:
         "barangays": [barangays.get(b) for b in barangay_ids if barangays.get(b)],
         # Purok coverage and vehicle come from the assignment records built in
         # Phase 2; until then the account's own vehicle field is the source.
-        "purok": user.get("assigned_purok"),
-        "puroks": user.get("assigned_puroks") or [],
         "vehicle": user.get("assigned_vehicle"),
         "contact": user.get("contact_number"),
         "status": user.get("status"),

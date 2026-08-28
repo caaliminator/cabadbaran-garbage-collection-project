@@ -232,7 +232,7 @@ def collections():
             "collector": user.get("full_name") or "Deleted account",
             "username": user.get("username") or "—",
             "tricycle": (own[0] or {}).get("tricycle_code") or "—",
-            "puroks": [], "availability": "—", "status": "No active assignment",
+            "availability": "—", "status": "No active assignment",
             "entries": len(own),
             "collected": sum(1 for e in own
                              if e["status"] == collection_service.COLLECTED),

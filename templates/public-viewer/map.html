@@ -11,15 +11,20 @@
       <h1 class="card__title">Where are the collectors?</h1>
       <p class="text-sm muted">
         Tricycles and City Hall trucks currently working, updated live.
+        Pick your barangay to follow just the collector assigned to it.
       </p>
     </div>
     <span class="badge badge--success"><span class="dot dot--pulse"></span>Live</span>
   </div>
 
   <div class="card__body" style="padding:var(--sp-3)">
+    {# A resident opens this to answer "is the truck near *me*", so the map
+       starts on them rather than on the whole city. Admin maps deliberately
+       do not: a city admin is watching the city, not standing in it. #}
     {% with map_title = 'Collection vehicles',
             show_barangay_filter = true,
             show_tabs = true,
+            map_locate = true,
             map_size = 'tall' %}
       {% include 'partials/live_map.html' %}
     {% endwith %}
@@ -29,7 +34,8 @@
     <span class="text-xs muted">
       {{ icon('info', 'icon--sm') }}
       Markers show the vehicle number only. A collector appears here while they
-      are on duty and disappears when their shift ends.
+      are on duty and disappears when their shift ends, and their marker moves
+      as they do — within a few seconds of them moving.
     </span>
   </div>
 </section>

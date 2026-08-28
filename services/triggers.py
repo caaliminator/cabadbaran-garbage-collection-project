@@ -167,7 +167,6 @@ def on_assignment_changed(assignment: dict, collector_id: str,
     if kind == "tricycle":
         barangay = storage.find_one("barangays", id=assignment.get("barangay_id")) or {}
         detail = (f"Brgy. {barangay.get('name', '')} · "
-                  f"{', '.join(assignment.get('purok_coverage') or []) or 'no puroks'} · "
                   f"{assignment.get('tricycle_code')}")
     else:
         count = len(assignment.get("covered_mrfs") or [])

@@ -100,12 +100,27 @@ def pending_for_truck(truck_code: str, date=None) -> list[dict]:
 
 
 def listing(status: str = "", barangay_id: str = "") -> list[dict]:
+    """
+    The carry-over worklist. Open records only, unless a status is asked for.
+
+    A carry-over exists to stop an overdue load being forgotten. Once it is
+    collected it has served that purpose, and leaving it in the list makes the
+    page read as a growing backlog when nothing is actually outstanding -- the
+    admin ends up scanning past closed rows to find the ones that need a truck.
+
+    Closed records are kept, not deleted: they are the evidence that the load
+    was eventually taken, and the "Closed" counter and the Collected filter
+    both still reach them.
+    """
     names = {b["id"]: b["name"] for b in storage.read("barangays")}
     today = timeutil.today_str()
 
     rows = []
     for row in storage.read("carry_overs"):
-        if status and row.get("status") != status:
+        if status:
+            if row.get("status") != status:
+                continue
+        elif row.get("status") != PENDING:
             continue
         if barangay_id and row.get("barangay_id") != barangay_id:
             continue

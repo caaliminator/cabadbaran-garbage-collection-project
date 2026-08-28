@@ -41,10 +41,6 @@
             <dd class="info-list__val">{{ profile.barangay or 'Not assigned' }}</dd>
           </div>
           <div class="info-list__row">
-            <dt class="info-list__key">Purok</dt>
-            <dd class="info-list__val">{{ profile.puroks|join(', ') if profile.puroks else (profile.purok or 'Not assigned') }}</dd>
-          </div>
-          <div class="info-list__row">
             <dt class="info-list__key">Assigned tricycle</dt>
             <dd class="info-list__val mono">{{ profile.vehicle or 'Not assigned' }}</dd>
           </div>

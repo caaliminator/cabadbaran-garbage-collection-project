@@ -79,11 +79,12 @@ ok("a city admin gets the city room", "role:city_admin" in crooms)
 ok("and every barangay", sum(1 for r in crooms if r.startswith("barangay:")) == 31)
 
 assignment_service.save_tricycle_assignment(Form({
-    "collector_id": col["id"], "barangay_id": B1, "purok_coverage": ["Purok 1"],
-    "tricycle_code": "TRI-01", "status": "Active"}), None, ADMIN)
+    "collector_id": col["id"], "barangay_id": B1,
+    "tricycle_code": "TRI-01", "effective_date": timeutil.today_str(),
+    "status": "Active"}), None, ADMIN)
 assignment_service.save_truck_assignment(Form({
     "operator_id": op["id"], "truck_code": "TRK-01",
-    "covered_mrfs": [B1, B2], "status": "Active",
+    "covered_mrfs": [B1, B2], "effective_date": timeutil.today_str(), "status": "Active",
     "planned_time__brgy-01": "10:00"}), None, ADMIN)
 COL = public_view(storage.get("users", col["id"]))
 OP = public_view(storage.get("users", op["id"]))
@@ -204,7 +205,8 @@ op2 = user_service.create({"full_name": "Op Two", "username": "op_two7",
                            "password": "goodpass1", "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_truck_assignment(Form({
     "operator_id": op2["id"], "truck_code": "TRK-02",
-    "covered_mrfs": ["brgy-05"], "status": "Active"}), None, ADMIN)
+    "covered_mrfs": ["brgy-05"], "effective_date": timeutil.today_str(),
+    "effective_date": timeutil.today_str(), "status": "Active"}), None, ADMIN)
 storage.write("notifications", [])
 carryover_service.reassign(carry["id"], "TRK-02", ADMIN)
 ok("reassigning notifies the newly assigned operator",

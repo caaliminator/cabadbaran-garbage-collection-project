@@ -238,6 +238,36 @@
             </select>
           </div>
 
+          {# Where it happened, in words. The GPS fix above is the precise
+             answer but it is a pair of numbers, and it is only there if the
+             collector pressed Capture -- indoors or under cover it often
+             fails. A landmark is what a barangay admin can actually act on
+             when a resident disputes the entry. #}
+          <div class="field">
+            <label class="field__label" for="location">
+              Location<span class="field__req" aria-hidden="true">*</span>
+              <span class="sr-only">(required)</span>
+            </label>
+            <input class="field__input" type="text" id="location" name="location"
+                   maxlength="160" list="location-suggestions"
+                   {# no `required`: see the reason select above -- this panel
+                      is hidden for a Collected entry, and the server enforces
+                      it only when the status is Not Collected #}
+                   placeholder="e.g. Corner of Rizal St. and the barangay hall"
+                   aria-describedby="location-hint"
+                   value="{% if entry and entry.location %}{{ entry.location }}{% endif %}">
+            <datalist id="location-suggestions">
+              {% if row.purok %}<option value="{{ row.purok }}"></option>{% endif %}
+              <option value="In front of the property"></option>
+              <option value="Roadside / kerb"></option>
+              <option value="Barangay collection point"></option>
+            </datalist>
+            <p class="field__hint" id="location-hint">
+              Where the uncollected waste is. Recorded with the photo as part
+              of the proof.
+            </p>
+          </div>
+
           <div class="field">
             <span class="field__label" id="proof-label">
               Image proof{% if proof_required %}<span class="field__req" aria-hidden="true">*</span>

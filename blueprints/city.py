@@ -106,6 +106,8 @@ def dashboard():
             "note": row["note"],
             "load": row["load"],
             "proof": row["entry"].get("image_proof_path"),
+            "location": row["entry"].get("location") or "",
+            "gps": row["entry"].get("gps"),
         })
     for pickup in storage.find("mrf_pickups", date=date):
         stamp = timeutil.parse_stamp(pickup.get("timestamp"))
@@ -123,6 +125,10 @@ def dashboard():
             "note": pickup.get("note") or "",
             "load": [],
             "proof": None,
+            # An MRF pickup's place is the facility itself, and the MRF page
+            # is where that detail lives; the feed just names it.
+            "location": f"{names.get(pickup.get('barangay_id'), '')} MRF",
+            "gps": pickup.get("gps"),
         })
     activity.sort(key=lambda a: a["timestamp"] or "", reverse=True)
 
@@ -302,8 +308,6 @@ def tricycle():
         ],
         collectors=user_service.collectors("tricycle_collector"),
         barangays=user_service.barangay_options(),
-        barangay_puroks={b["id"]: b.get("puroks", [])
-                         for b in storage.read("barangays")},
         tricycles=vehicle_service.available(vehicle_service.TRICYCLE),
         registry=vehicle_service.with_status(vehicle_service.TRICYCLE),
         statuses=assignment_service.STATUS_CHOICES,
@@ -410,8 +414,7 @@ def property():
     for row in rows:
         row["barangay"] = names.get(row.get("barangay_id"), "—")
         row["collector"] = users.get((row["entry"] or {}).get("collector_id")) or "—"
-        row["assigned_tricycle"] = coverage.get(
-            (row.get("barangay_id"), row.get("purok")), "Unassigned")
+        row["assigned_tricycle"] = coverage.get(row.get("barangay_id"), "Unassigned")
 
     counts = collection_service.counts(property_service.listing(), date)
 
@@ -442,13 +445,13 @@ def property():
 
 
 def _tricycle_coverage() -> dict:
-    """(barangay, purok) -> the tricycle covering it, from active assignments."""
+    """barangay -> the tricycle covering it, from active assignments."""
     coverage = {}
     for row in storage.read(assignment_service.TRICYCLE_COLLECTION):
         if row.get("status") not in assignment_service.ACTIVE_STATUSES:
             continue
-        for purok in row.get("purok_coverage") or []:
-            coverage[(row.get("barangay_id"), purok)] = row.get("tricycle_code")
+        if row.get("barangay_id"):
+            coverage[row["barangay_id"]] = row.get("tricycle_code")
     return coverage
 
 
@@ -510,13 +513,18 @@ def carry_over():
         return redirect(url_for("city.carry_over"))
 
     counts = carryover_service.counts()
+    # Blank means the open worklist. Only "Collected" is offered as the other
+    # view, so anything else is treated as no filter rather than 404-ing.
+    selected_status = ("Collected" if request.args.get("status") == "Collected"
+                       else "")
     return render_template(
         "city-hall-admin/carryover.html",
         page_title="Carry-Over",
         rows=carryover_service.listing(
-            status=request.args.get("status") or "",
+            status=selected_status,
             barangay_id=request.args.get("barangay") or ""),
         counts=counts,
+        selected_status=selected_status,
         stats=[
             ("Pending Carry-Overs", counts["pending"], "Awaiting collection", "repeat"),
             ("Not Yet Reassigned", counts["unassigned"], "No truck assigned", "alert"),

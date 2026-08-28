@@ -430,14 +430,34 @@
 }
 .pill:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* Password field with a reveal toggle */
-.field--password { position: relative; }
+/* Password field with a reveal toggle.
+
+   The toggle shares the input's grid cell instead of being absolutely
+   positioned inside `.field`. `.field` is a column -- label, input, then an
+   optional hint and an optional error -- so centring the button on the
+   field's own 50% put it between the label and the input, floating above the
+   box rather than sitting in it, and it moved again whenever a hint or an
+   error was present. Overlaying the input's row is the one anchor that stays
+   correct for every combination of those rows.
+
+   Only the first three children are placed by hand. A hint or an error is
+   auto-placed into the rows below it, in DOM order, since those cells are
+   already taken. */
+.field--password {
+  display: grid;
+  grid-template-columns: 1fr;   /* gap is inherited from .field */
+}
+.field--password > .field__label  { grid-area: 1 / 1; }
+.field--password > .field__input  { grid-area: 2 / 1; }
+.field--password > .field__reveal { grid-area: 2 / 1; }
+
+/* Room for the button, so a long value never runs underneath it. */
 .field--password .field__input { padding-inline-end: 46px; }
+
 .field__reveal {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-end: var(--sp-2);
-  transform: translateY(-50%);
+  justify-self: end;
+  align-self: center;
+  margin-inline-end: var(--sp-2);
   display: grid;
   place-items: center;
   width: 32px; height: 32px;
@@ -445,6 +465,7 @@
   color: var(--fg-subtle);
 }
 .field__reveal:hover { color: var(--fg-strong); background: var(--bg-hover); }
+.field__reveal[aria-pressed="true"] { color: var(--fg-brand); }
 
 /* ==========================================================================
    TOOLBAR / FILTERS
@@ -961,7 +982,7 @@
   margin-bottom: var(--sp-5);
   border: 1px solid var(--tone-warning-bd);
   border-left-width: 3px;
-  border-radius: var(--radius-md);
+  border-radius: var(--r-md);
   background: var(--tone-warning-bg);
   color: var(--tone-warning-fg);
 }
@@ -985,7 +1006,7 @@
 .card--inset {
   background: var(--surface-2, var(--bg-subtle));
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--r-md);
   box-shadow: none;
 }
 .card--inset + .card--inset { margin-top: var(--sp-4); }
@@ -998,7 +1019,7 @@
   max-height: 340px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--r-md);
   padding: var(--sp-2);
 }
 .mrf-picker__row {
@@ -1007,7 +1028,7 @@
   justify-content: space-between;
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
 }
 .mrf-picker__row:hover { background: var(--bg-subtle); }
 .mrf-picker__row + .mrf-picker__row { border-top: 1px solid var(--border-subtle); }
@@ -1046,7 +1067,7 @@
 }
 .duty__state { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .duty__label { margin: 0; font-weight: 600; }
-.duty__hint  { margin: 0; font-size: var(--text-xs); color: var(--text-muted); }
+.duty__hint  { margin: 0; font-size: var(--text-xs); color: var(--fg-muted); }
 
 .duty__dot {
   width: 12px;
@@ -1085,7 +1106,28 @@
    comes from the data, so re-grouping barangays is a data change.
    ========================================================================== */
 
-.map { position: relative; border-radius: var(--radius-lg); overflow: hidden; background: var(--rail-bg, #0b2c45); }
+/* `isolation: isolate` is load-bearing, not tidiness.
+
+   Leaflet lays its own internals out on a scale of its own: panes at 400,
+   controls at 800, the zoom buttons at 1000. This app's whole scale tops out
+   at 90 (--z-toast). `.map` was position:relative with z-index:auto, which
+   does NOT open a stacking context, so every one of those Leaflet numbers
+   competed directly with the app's -- and won. The map painted over the
+   sticky public header (50), over the fixed bottom tab bar (60), and over
+   toasts (90).
+
+   Isolating the map keeps Leaflet's 400s and 1000s inside `.map`, where they
+   only order the map against itself. The container then takes its place in
+   the page like any other element, and the app's own scale decides what sits
+   above it. `.map--full` still sets z-index 900 to cover the chrome on
+   purpose. */
+.map {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--rail-bg, #0b2c45);
+}
 /* Map height is viewport-relative, not a fixed pixel count. A 420px canvas is
    a letterbox on a 1080p monitor -- you end up panning constantly to follow a
    truck instead of just watching the city. These scale with the screen, with a
@@ -1107,6 +1149,19 @@
   .map__canvas--tall { height: clamp(400px, 68vh, 620px); }
 }
 .map__canvas .leaflet-container { width: 100%; height: 100%; background: var(--bg-subtle); font: inherit; }
+
+/* The filter summary sits between the map and its legend, in the same
+   translucent chrome as the legend so it reads as part of the map rather
+   than as page text that happens to be nearby. */
+.map__summary:empty { display: none; }
+.map__summary {
+  padding: var(--sp-2) var(--sp-4);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: rgba(255, 255, 255, .92);
+  background: rgba(255, 255, 255, .06);
+  border-block-start: 1px solid rgba(255, 255, 255, .1);
+}
 
 .map__note:empty { display: none; }
 .map__note {
@@ -1143,6 +1198,18 @@
 .map-zone--zone-c { fill: #d59a2a; stroke: #eec468; }
 .map-zone--zone-d { fill: #6d4fc4; stroke: #a58fe8; }
 .map-zone--none   { fill: #64748b; stroke: #94a3b8; }
+
+/* Zone fill by reading scale, set from map.js as data-map-zoom on the map
+   container. At city scale the fills are the point; by street scale they are
+   a sheet of colour over the roads, so they thin out to a tint and the
+   boundary carries the barangay instead. Deliberately three steps rather than
+   a continuous fade: the polygons only need to get out of the way, and a
+   value that moves on every zoom tick reads as flicker.
+
+   These sit above the base rule and below :hover on purpose -- pointing at a
+   barangay still brings its fill back at any scale. */
+[data-map-zoom="near"]   .map-zone { fill-opacity: .3; stroke-opacity: .75; }
+[data-map-zoom="street"] .map-zone { fill-opacity: .12; stroke-opacity: .95; stroke-width: 2.5; }
 
 /* Hover lifts the area out of the pack -- with 31 colours on screen, this is
    what makes an individual barangay readable while you point at it. */
@@ -1269,6 +1336,13 @@
 .map-pin--truck    .map-pin__label { background: #ea580c; }
 .map-pin--mrf      .map-pin__label { background: #0f172a; }
 
+/* "You are here" on the public map. A filled dot for the position and a soft
+   halo for the reported accuracy, so a coarse fix reads as coarse instead of
+   claiming a doorstep. Colour lives here with the rest of the map palette,
+   not in map.js. */
+.map-here__dot  { fill: #2563eb; fill-opacity: 1; stroke: #fff; }
+.map-here__halo { fill: #2563eb; fill-opacity: .12; stroke: #60a5fa; stroke-opacity: .5; }
+
 /* ---- Legend ---- */
 .map__legend {
   display: flex;
@@ -1329,17 +1403,17 @@
   height: 100%;
   padding: var(--sp-6);
   text-align: center;
-  color: var(--text-muted);
+  color: var(--fg-muted);
 }
 
 /* Leaflet's own popups inherit the app's surface colours so they do not look
    like a foreign widget dropped onto the page. */
 .leaflet-popup-content-wrapper,
-.leaflet-popup-tip { background: var(--surface); color: var(--text); }
+.leaflet-popup-tip { background: var(--bg-surface); color: var(--fg-default); }
 .leaflet-popup-content { margin: var(--sp-3) var(--sp-4); font-size: var(--text-sm); }
 .leaflet-control-layers, .leaflet-bar a {
-  background: var(--surface);
-  color: var(--text);
+  background: var(--bg-surface);
+  color: var(--fg-default);
   border-color: var(--border);
 }
 
@@ -1360,8 +1434,12 @@
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  background: var(--surface);
+  background: var(--bg-surface);
   border-top: 1px solid var(--border);
+  /* Content passes underneath the bar, so it needs to read as being on top
+     of the page rather than part of it. */
+  box-shadow: 0 -2px 12px rgb(0 0 0 / .12);
+  /* Clears the home indicator on a notched phone; 0 everywhere else. */
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -1373,7 +1451,7 @@
   padding: var(--sp-2) var(--sp-1);
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--fg-muted);
   text-decoration: none;
   min-height: 56px;              /* comfortable thumb target */
   justify-content: center;
@@ -1382,7 +1460,7 @@
   color: var(--brand, #0b6b3a);
   box-shadow: inset 0 2px 0 currentColor;
 }
-.tabbar__link:hover { color: var(--text); }
+.tabbar__link:hover { color: var(--fg-strong); }
 
 /* Keep the fixed bar from covering the end of the page. */
 .public-main--single { padding-bottom: 88px; }
@@ -1393,7 +1471,7 @@
     max-width: 960px;
     margin: var(--sp-4) auto 0;
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--r-lg);
   }
   .tabbar__link { flex-direction: row; gap: var(--sp-2); min-height: 48px; }
   .public-main--single { padding-bottom: var(--sp-6); }
@@ -1407,12 +1485,26 @@
   gap: var(--sp-5);
 }
 
+/* Sticky footer, the layout kind: the public shell is header, tabs, main and
+   footer stacked in the body, and on a short page -- the report form, a day
+   with nothing scheduled -- the copyright line used to stop wherever the
+   content ended and leave dead space below it. `margin-top: auto` in a
+   column flexbox drops it to the bottom of the viewport instead, and it
+   still scrolls away normally once the page is taller than the screen.
+
+   Scoped by :has() to the public shell so the admin layout, which owns its
+   own scrolling regions, is untouched. */
+body:has(> .public-main) { display: flex; flex-direction: column; }
+body:has(> .public-main) .public-foot { margin-top: auto; }
+
 .public-foot {
   padding: var(--sp-4);
+  /* Room for the fixed tab bar, which is out of flow and would otherwise
+     sit on top of this line. */
   margin-bottom: 72px;
   text-align: center;
   font-size: var(--text-xs);
-  color: var(--text-muted);
+  color: var(--fg-muted);
 }
 @media (min-width: 720px) { .public-foot { margin-bottom: 0; } }
 

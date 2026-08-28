@@ -55,8 +55,8 @@ other = user_service.create({"full_name": "Other Collector", "username": "route2
                              "assigned_vehicle": "TRI-02", "password": "goodpass1",
                              "confirm_password": "goodpass1"}, ADMIN)
 assignment, _ = assignment_service.save_tricycle_assignment(Form({
-    "collector_id": col["id"], "barangay_id": B1,
-    "purok_coverage": ["Purok 1", "Purok 2"], "tricycle_code": "TRI-01",
+    "collector_id": col["id"], "barangay_id": B1, "tricycle_code": "TRI-01",
+    "effective_date": timeutil.today_str(),
     "status": "Active"}), None, ADMIN)
 
 from services.auth_service import public_view
@@ -66,12 +66,15 @@ in_route = property_service.create(Form({"owner_name": "Nica Abayon", "type": "H
                                          "purok": "Purok 1", "tag": "None Composting"}), B1, ADMIN)
 in_route2 = property_service.create(Form({"owner_name": "Iliana Dwane", "type": "House",
                                           "purok": "Purok 2"}), B1, ADMIN)
-out_route = property_service.create(Form({"owner_name": "Far Away", "type": "House",
+# Coverage is the whole barangay, so a property in a far purok is still on
+# the route -- it is only another barangay that is out of scope.
+far_purok = property_service.create(Form({"owner_name": "Far Away", "type": "House",
                                           "purok": "Purok 5"}), B1, ADMIN)
 
 print("\n[1] route scoping")
 route = property_service.for_collector(assignment)
-ok("route holds only covered puroks", {p["id"] for p in route} == {in_route["id"], in_route2["id"]})
+ok("route holds every property in the assigned barangay",
+   {p["id"] for p in route} == {in_route["id"], in_route2["id"], far_purok["id"]})
 ok("no assignment means no route, not the whole barangay",
    property_service.for_collector(None) == [])
 fails("property must belong to the chosen barangay's purok list",
@@ -85,7 +88,7 @@ print("\n[2] the status model")
 ok("no record means Pending",
    collection_service.status_for(in_route["id"]) == "Pending")
 c = collection_service.counts(route)
-ok("counts start all pending", c["pending"] == 2 and c["collected"] == 0)
+ok("counts start all pending", c["pending"] == 3 and c["collected"] == 0)
 
 today_types = schedule_service.waste_types_for()
 if not today_types:   # a Sunday run would otherwise have nothing to record
@@ -152,8 +155,14 @@ fails("oversized image rejected",
           {"proof": Upload("big.jpg", b"x" * (Config.MAX_PROOF_BYTES + 1))}, in_route, COL),
       "proof")
 
+fails("not-collected needs a location",
+      lambda: collection_service.save_entry(
+          Form({"status": "Not Collected", "reason": "Not segregated properly"}),
+          {"proof": Upload("evidence.jpg")}, in_route, COL), "location")
+
 missed = collection_service.save_entry(
     Form({"status": "Not Collected", "reason": "Not segregated properly",
+          "location": "Roadside, corner of Rizal St.",
           "note": "Mixed residual with recyclables"}),
     {"proof": Upload("evidence.JPG")}, in_route, COL)
 ok("not-collected saved with proof", missed["status"] == "Not Collected"

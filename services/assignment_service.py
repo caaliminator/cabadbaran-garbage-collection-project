@@ -1,6 +1,12 @@
 """
-Route assignments -- which collector works which barangay and purok, and which
-truck operator empties which barangay MRFs.
+Route assignments -- which collector works which barangay, and which truck
+operator empties which barangay MRFs.
+
+A tricycle assignment is barangay-wide. It used to also carry a purok
+coverage list, which meant the admin picked the puroks on top of the barangay
+and every consumer had to reason about a second level of scope. In practice a
+tricycle works the barangay it is assigned to, so the barangay is the unit of
+coverage and the purok list is gone.
 
 Two rules run through everything here:
 
@@ -8,9 +14,9 @@ Two rules run through everything here:
     active assignment. Both are hard errors -- a duplicate would make the
     route lists ambiguous and double-count the collected load.
   * overlapping coverage is a *warning*, not an error. Two tricycles sharing a
-    purok during a handover is legitimate; so is two trucks sharing a barangay
-    MRF when 8 trucks x 4 barangays exceeds the 31 that exist. The admin is
-    told and decides.
+    barangay during a handover is legitimate; so is two trucks sharing a
+    barangay MRF when 8 trucks x 4 barangays exceeds the 31 that exist. The
+    admin is told and decides.
 
 "Temporary Replacement" is an active status: while one is in force the
 replacement sees the route and the original does not (spec section 7).
@@ -91,8 +97,12 @@ def tricycle_listing(search: str = "", barangay: str = "", status: str = "",
             "username": user.get("username") or "—",
             "barangay_id": row.get("barangay_id"),
             "barangay": names.get(row.get("barangay_id")) or "—",
-            "puroks": row.get("purok_coverage") or [],
             "tricycle": row.get("tricycle_code") or "—",
+            "effective_date": row.get("effective_date") or "",
+            "effective_display": (timeutil.display_date(row["effective_date"])
+                                  if row.get("effective_date") else "Not set"),
+            "pending_start": bool(row.get("effective_date")
+                                  and row["effective_date"] > timeutil.today_str()),
             "availability": available,
             "status": row.get("status", "Active"),
             "note": row.get("note") or "",
@@ -133,15 +143,16 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
                              if u.get("role") == "tricycle_collector"])
     barangay_id = v.choice("barangay_id", "Assigned Barangay", list(barangays))
 
-    puroks = (barangays.get(barangay_id, {}).get("puroks") or []) if barangay_id else []
-    v.multi("purok_coverage", "Purok", puroks)
-
     from services import vehicle_service
     # Accept any in-service unit here; the clash check below produces the
     # message that actually names who is holding it.
     tricycle = v.choice("tricycle_code", "Tricycle",
                         vehicle_service.in_service(vehicle_service.TRICYCLE))
     status = v.choice("status", "Status", STATUS_CHOICES)
+    # When the route actually changes hands. Required, because "who is working
+    # this barangay" is only answerable with a date attached -- a replacement
+    # that starts on Monday is not the same fact as one starting today.
+    effective_date = v.date("effective_date", "Date of Effectivity", required=True)
     v.text("note", "Note", max_length=500)
 
     collector = users.get(collector_id) or {}
@@ -167,24 +178,26 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
 
     v.raise_if_invalid()
 
-    # Overlaps are legitimate during a handover, so they inform rather than block.
+    # Overlaps are legitimate during a handover, so they inform rather than
+    # block. With coverage now barangay-wide, sharing the barangay is the
+    # overlap -- there is no narrower unit left to compare.
     if status in ACTIVE_STATUSES:
         for other in storage.read(TRICYCLE_COLLECTION):
             if other.get("id") == assignment_id or other.get("status") not in ACTIVE_STATUSES:
                 continue
             if other.get("barangay_id") != barangay_id:
                 continue
-            shared = set(other.get("purok_coverage") or []) & set(v.data["purok_coverage"])
-            if shared:
-                name = users.get(other.get("collector_id"), {}).get("full_name", "another collector")
-                v.warn(f"{', '.join(sorted(shared))} is also covered by {name} "
-                       f"({other.get('tricycle_code')}).")
+            name = users.get(other.get("collector_id"), {}).get("full_name",
+                                                                "another collector")
+            v.warn(f"{barangays.get(barangay_id, {}).get('name', 'That barangay')} is "
+                   f"also covered by {name} ({other.get('tricycle_code')}). "
+                   f"Both collectors will see the same properties.")
 
     payload = {
         "collector_id": collector_id,
         "barangay_id": barangay_id,
-        "purok_coverage": v.data["purok_coverage"],
         "tricycle_code": tricycle,
+        "effective_date": effective_date,
         "status": status,
         "note": v.data["note"],
     }
@@ -196,8 +209,7 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
     else:
         record = storage.insert(TRICYCLE_COLLECTION, payload, actor)
 
-    _sync_collector_fields(collector_id, barangay_id, tricycle,
-                           v.data["purok_coverage"], actor)
+    _sync_collector_fields(collector_id, barangay_id, tricycle, actor)
 
     from services import triggers
     triggers.on_assignment_changed(record, collector_id, "tricycle", actor)
@@ -235,6 +247,11 @@ def truck_listing(search: str = "", status: str = "",
             "mrf_ids": covered,
             "mrfs": [names.get(b) for b in covered if names.get(b)],
             "truck": row.get("truck_code") or "—",
+            "effective_date": row.get("effective_date") or "",
+            "effective_display": (timeutil.display_date(row["effective_date"])
+                                  if row.get("effective_date") else "Not set"),
+            "pending_start": bool(row.get("effective_date")
+                                  and row["effective_date"] > timeutil.today_str()),
             "planned_pickup_times": row.get("planned_pickup_times") or {},
             "availability": available,
             "status": row.get("status", "Active"),
@@ -298,6 +315,7 @@ def save_truck_assignment(form, assignment_id: str | None = None,
                      vehicle_service.in_service(vehicle_service.TRUCK))
     covered = v.multi("covered_mrfs", "Barangay MRF", list(barangays))
     status = v.choice("status", "Status", STATUS_CHOICES)
+    effective_date = v.date("effective_date", "Date of Effectivity", required=True)
     v.text("note", "Note", max_length=500)
 
     # Optional planned pickup time per covered MRF, for the T-2h reminders.
@@ -352,6 +370,7 @@ def save_truck_assignment(form, assignment_id: str | None = None,
         "truck_code": truck,
         "covered_mrfs": covered,
         "planned_pickup_times": planned,
+        "effective_date": effective_date,
         "status": status,
         "note": v.data["note"],
     }
@@ -408,16 +427,20 @@ def _active_clash(collection: str, field: str, value, exclude_id: str | None):
     return None
 
 
-def _sync_collector_fields(collector_id, barangay_id, vehicle, puroks, actor):
+def _sync_collector_fields(collector_id, barangay_id, vehicle, actor):
     """
     Mirror the assignment onto the account, so the collector's own profile and
     sidebar show their current route without every page re-deriving it.
+
+    The purok fields are cleared rather than left alone: an account written
+    before coverage went barangay-wide would otherwise keep showing a purok
+    list that no longer scopes anything.
     """
     if not collector_id:
         return
     storage.update("users", collector_id, {
         "assigned_barangay": barangay_id,
         "assigned_vehicle": vehicle,
-        "assigned_puroks": puroks,
-        "assigned_purok": puroks[0] if puroks else None,
+        "assigned_puroks": [],
+        "assigned_purok": None,
     }, actor)

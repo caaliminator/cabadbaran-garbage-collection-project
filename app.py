@@ -10,6 +10,7 @@ REST endpoints stay in place as the polling fallback, so the app is fully
 usable if the socket cannot connect.
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -35,6 +36,71 @@ socketio = SocketIO(async_mode="threading", cors_allowed_origins=[],
                     logger=False, engineio_logger=False)
 
 
+def _autoseed() -> None:
+    """
+    Seed the store on startup when it is empty, so a local run has logins.
+
+    The deploy never hits this: render.yaml runs `seed.py --demo` in its start
+    command, because the free plan wipes the filesystem on every restart. A
+    local run has no start command, so `python app.py` against a fresh clone
+    -- data/ is gitignored, it holds password hashes -- opened a login page
+    that no password could get past, the accounts simply did not exist yet.
+
+    Guarded on the user collection being empty, so it runs once on a new store
+    and never touches one that has records in it.
+    """
+    if storage.count("users"):
+        return
+
+    import seed
+
+    print("No accounts found -- seeding the local store "
+          "(set AUTO_SEED=0 to skip).")
+    try:
+        seed.run(demo=True)
+    except Exception:
+        # A seed that fails must not stop the app from starting: the login
+        # page still needs to render so the failure is readable, and
+        # `python seed.py --demo` can be run by hand to see the whole error.
+        logging.getLogger(__name__).exception("Automatic seeding failed")
+
+
+def _autogeo() -> None:
+    """
+    Fill data/geo/ with illustrative geometry when it is still stubs.
+
+    seed.py writes the two geo files as empty placeholders -- 31 barangays,
+    zero shapes -- so a map with nothing seeded draws tiles and nothing else.
+    That is not just cosmetic: the barangay filter zooms by fitting a
+    polygon's bounds, so with no polygons the map cannot zoom to a barangay at
+    all, on the public page and the admin pages alike. render.yaml runs
+    make_demo_geo.py right after seed.py for this reason; a local run had no
+    equivalent.
+
+    Both files keep their `_placeholder` flag, so the map still captions them
+    as illustrative rather than surveyed. Real GeoJSON dropped into data/geo/
+    with the flag removed is left alone -- this only runs when nothing has
+    geometry yet.
+    """
+    from services import geo_service
+
+    try:
+        if geo_service.barangay_zones()["meta"]["with_geometry"]:
+            return
+        barangays = storage.read("barangays")
+        if not barangays:
+            return
+
+        from tools import make_demo_geo
+
+        make_demo_geo.write(barangays, announce=lambda _: None)
+        print("Wrote illustrative map geometry to data/geo/ "
+              "(replace it with real boundaries -- see docs/DATA_REQUIREMENTS.md).")
+    except Exception:
+        # A blank map is a bad demo, not a broken app.
+        logging.getLogger(__name__).exception("Automatic geo generation failed")
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(config.Config)
@@ -49,6 +115,13 @@ def create_app():
     # Create the data directory and any missing JSON collection before the
     # first request can touch them.
     storage.bootstrap()
+
+    # ...and make sure there is an account to log in with, and a map with
+    # shapes on it. Both are off in production, where the host does this in
+    # its start command; AUTO_SEED=0 disables them, AUTO_SEED=1 forces them.
+    if os.environ.get("AUTO_SEED", "0" if config.IS_PRODUCTION else "1") == "1":
+        _autoseed()
+        _autogeo()
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(city_bp, url_prefix="/city")

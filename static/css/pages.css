@@ -272,7 +272,26 @@
   gap: var(--sp-2);
   font-size: var(--text-xs);
   font-weight: 600;
-  color: rgba(255, 255, 255, .8);
+  color: rgba(255, 255, 255, .92);
+}
+
+/* The zone strip is the same chrome as the legend above it and has to be
+   dressed the same way.
+
+   It was not. components.css styles both strips as light panels with dark
+   text; this file later re-cut `.map__legend` as a translucent white-on-dark
+   bar to sit against the map's navy frame -- but stopped there. The zone
+   strip kept its near-white background from components.css while its items,
+   matching `.map__legend-item` above, took the new white text. White on
+   near-white: the labels were there the whole time, just unreadable.
+
+   Matching the two also means one place to change the map's chrome. */
+.map__legend-zones {
+  background: rgba(255, 255, 255, .06);
+  border-block-start: 1px solid rgba(255, 255, 255, .1);
+  color: rgba(255, 255, 255, .92);
+  padding: var(--sp-2) var(--sp-3);
+  gap: var(--sp-2) var(--sp-4);
 }
 
 /* "Live" indicator */

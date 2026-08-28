@@ -1,7 +1,7 @@
 """
 Geospatial REST API -- the only way the browser gets coordinates.
 
-    GET /api/geo/config      map centre, zoom, tile URL, zone colour groups
+    GET /api/geo/config      map centre, zoom, basemaps, zone colour groups
     GET /api/geo/barangays   FeatureCollection of the 31 barangay zones
     GET /api/geo/mrfs        one MRF location per barangay
     GET /api/geo/hotspots    ?barangay=&from=&to=&severity=
@@ -29,6 +29,9 @@ def map_config():
     return jsonify({
         "center": list(Config.MAP_DEFAULT_CENTER),
         "zoom": Config.MAP_DEFAULT_ZOOM,
+        # `basemaps` is what the client builds its layer control from;
+        # tile_url/attribution stay for anything that wants a single default.
+        "basemaps": [dict(b) for b in Config.MAP_BASEMAPS],
         "tile_url": Config.MAP_TILE_URL,
         "attribution": Config.MAP_TILE_ATTRIBUTION,
         "zone_groups": geo_service.zone_groups(),

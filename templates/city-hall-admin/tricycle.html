@@ -8,7 +8,7 @@
 <div class="page__head">
   <div>
     <h1 class="page__title">Tricycle</h1>
-    <p class="page__sub">Assign tricycle collectors to barangays and purok coverage.</p>
+    <p class="page__sub">Assign tricycle collectors to barangays.</p>
   </div>
 </div>
 
@@ -21,8 +21,8 @@
 </section>
 
 {# ---- Assign form ------------------------------------------------------
-   Purok choices depend on the barangay, so the barangay select rewrites the
-   pill set below it. Everything here is validated again server-side in
+   Coverage is the barangay: a tricycle works the whole barangay it is
+   assigned to. Everything here is validated again server-side in
    assignment_service.save_tricycle_assignment.                            #}
 <section class="card">
   <div class="card__head">
@@ -40,8 +40,7 @@
       {% endcall %}
     </div>
   {% else %}
-    <form class="card__body form" method="post" data-validate novalidate
-          data-purok-form data-purok-map='{{ barangay_puroks|tojson }}'>
+    <form class="card__body form" method="post" data-validate novalidate>
       {{ csrf_field() }}
 
       <div class="form__grid">
@@ -79,16 +78,19 @@
       </div>
 
       <div class="form__grid form__grid--2">
-        <fieldset class="field" style="border:0;padding:0;margin:0">
-          <legend class="field__label">
-            Purok Coverage<span class="field__req" aria-hidden="true">*</span>
+        <div class="field">
+          <label class="field__label" for="effective_date">
+            Date of Effectivity<span class="field__req" aria-hidden="true">*</span>
             <span class="sr-only">(required)</span>
-          </legend>
-          <p class="field__hint">Select every purok this collector will service.</p>
-          <div class="pillset" data-purok-target>
-            <p class="text-sm muted">Choose a barangay first.</p>
-          </div>
-        </fieldset>
+          </label>
+          <input class="field__input" type="date" id="effective_date" name="effective_date"
+                 required value="{{ now.strftime('%Y-%m-%d') }}"
+                 aria-describedby="effective_date-hint">
+          <p class="field__hint" id="effective_date-hint">
+            The day this collector starts working the route. A future date is
+            allowed -- use it to line up a handover in advance.
+          </p>
+        </div>
 
         {{ radios('status', 'Status', ['Active', 'Temporary Replacement'], required=True) }}
       </div>
@@ -126,8 +128,8 @@
             {{ th('Collector Name', 'collector') }}
             {{ th('Username') }}
             {{ th('Assigned Barangay', 'barangay') }}
-            {{ th('Purok Coverage') }}
             {{ th('Assigned Tricycle', 'tricycle') }}
+            {{ th('Effective From', 'effective') }}
             {{ th('Availability', 'availability') }}
             {{ th('Status', 'status') }}
             <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
@@ -137,16 +139,17 @@
           {% for r in rows %}
             <tr data-barangay="{{ r.barangay_id }}" data-status="{{ r.status }}"
                 data-availability="{{ r.availability }}" data-collector="{{ r.collector }}"
-                data-tricycle="{{ r.tricycle }}">
+                data-tricycle="{{ r.tricycle }}" data-effective="{{ r.effective_date }}">
               <td data-label="Collector"><span class="strong">{{ r.collector }}</span></td>
               <td data-label="Username"><span class="mono">{{ r.username }}</span></td>
               <td data-label="Barangay">{{ r.barangay }}</td>
-              <td data-label="Purok Coverage">
-                <div class="tags">
-                  {% for p in r.puroks %}<span class="tag">{{ p }}</span>{% endfor %}
-                </div>
-              </td>
               <td data-label="Tricycle"><span class="mono">{{ r.tricycle }}</span></td>
+              <td data-label="Effective From">
+                {{ r.effective_display }}
+                {% if r.pending_start %}
+                  <span class="badge badge--info">Scheduled</span>
+                {% endif %}
+              </td>
               <td data-label="Availability">{{ status(r.availability) }}</td>
               <td data-label="Status">{{ status(r.status) }}</td>
               <td class="table__actions">
@@ -155,8 +158,8 @@
                           data-modal-open="tri-detail"
                           data-set-name="{{ r.collector }}"
                           data-set-barangay="{{ r.barangay }}"
-                          data-set-puroks="{{ r.puroks|join(', ') or 'None' }}"
                           data-set-tricycle="{{ r.tricycle }}"
+                          data-set-effective="{{ r.effective_display }}"
                           data-set-availability="{{ r.availability }}"
                           data-set-status="{{ r.status }}"
                           data-set-note="{{ r.note or 'No notes recorded.' }}"
@@ -171,9 +174,9 @@
                           data-set-collector_id="{{ r.collector_id }}"
                           data-set-barangay_id="{{ r.barangay_id }}"
                           data-set-tricycle_code="{{ r.tricycle }}"
+                          data-set-effective_date="{{ r.effective_date }}"
                           data-set-status="{{ r.status }}"
                           data-set-note="{{ r.note }}"
-                          data-set-puroks="{{ r.puroks|join(',') }}"
                           aria-label="Edit assignment for {{ r.collector }}">
                     {{ icon('edit', 'icon--sm') }}
                   </button>
@@ -211,7 +214,7 @@
       <div class="grid grid--2">
         <div class="kv"><span class="kv__key">Assigned Barangay</span><span class="kv__val" data-fill="barangay">—</span></div>
         <div class="kv"><span class="kv__key">Tricycle</span><span class="kv__val mono" data-fill="tricycle">—</span></div>
-        <div class="kv"><span class="kv__key">Purok Coverage</span><span class="kv__val" data-fill="puroks">—</span></div>
+        <div class="kv"><span class="kv__key">Effective From</span><span class="kv__val" data-fill="effective">—</span></div>
         <div class="kv"><span class="kv__key">Availability</span><span class="kv__val" data-fill="availability">—</span></div>
         <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
       </div>
@@ -226,8 +229,7 @@
 {# ---- Edit dialog ------------------------------------------------------ #}
 <div class="modal" id="tri-edit" data-open="false" role="dialog"
      aria-modal="true" aria-labelledby="tri-edit-title" aria-hidden="true">
-  <form class="modal__panel" method="post" data-validate novalidate
-        data-purok-form data-purok-map='{{ barangay_puroks|tojson }}'>
+  <form class="modal__panel" method="post" data-validate novalidate>
     {{ csrf_field() }}
     <input type="hidden" name="id" data-fill-value="id">
 
@@ -272,6 +274,12 @@
         </div>
 
         <div class="field">
+          <label class="field__label" for="edit_effective_date">Date of Effectivity</label>
+          <input class="field__input" type="date" id="edit_effective_date"
+                 name="effective_date" required data-fill-value="effective_date">
+        </div>
+
+        <div class="field">
           <label class="field__label" for="edit_status">Status</label>
           <select class="field__select" id="edit_status" name="status"
                   required data-fill-value="status">
@@ -279,11 +287,6 @@
           </select>
         </div>
       </div>
-
-      <fieldset class="field" style="border:0;padding:0;margin:0">
-        <legend class="field__label">Purok Coverage</legend>
-        <div class="pillset" data-purok-target data-fill-selection="puroks"></div>
-      </fieldset>
 
       <div class="field">
         <label class="field__label" for="edit_note">Note</label>

@@ -40,7 +40,7 @@
     {% if portal == 'brgy' and barangay %}
       <p>Assigned to <strong style="color:#fff">Brgy. {{ barangay }}</strong></p>
     {% elif portal == 'tricycle' %}
-      <p>{{ user.vehicle }} · Brgy. {{ user.barangay }}, <strong style="color:#fff">{{ user.purok }}</strong></p>
+      <p>{{ user.vehicle }} · <strong style="color:#fff">Brgy. {{ user.barangay }}</strong></p>
     {% elif portal == 'truck' %}
       <p>{{ user.vehicle }} · <strong style="color:#fff">{{ user.barangays|length }} MRFs assigned</strong></p>
     {% else %}

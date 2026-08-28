@@ -2,6 +2,8 @@
 {% from 'partials/icons.html' import icon %}
 {% from 'partials/macros.html' import status, empty %}
 
+{% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
+
 {% block page %}
 
 <div class="page__head">
@@ -18,6 +20,23 @@
 </div>
 
 {% include 'partials/duty_toggle.html' %}
+
+{# ---- Where I am -------------------------------------------------------
+   The collector's own map, tracking this device. It follows them whether or
+   not they are On Duty -- On Duty is what publishes their position to
+   everyone else's map, not what lets them see their own.                  #}
+<section class="card">
+  <div class="card__body card__body--flush" style="padding:var(--sp-3)">
+    {% with map_title = 'My location',
+            map_follow = user.vehicle or 'me',
+            map_locate_zoom = 17,
+            show_tabs = false,
+            show_barangay_filter = false %}
+      {% include 'partials/live_map.html' %}
+    {% endwith %}
+  </div>
+</section>
+
 
 {# ---- Today's schedule ------------------------------------------------- #}
 <section class="today-strip" aria-label="Today's schedule">

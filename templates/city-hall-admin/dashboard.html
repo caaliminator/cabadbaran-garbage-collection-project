@@ -123,6 +123,8 @@
                           data-set-reason="{{ a.reason }}"
                           data-set-note="{{ a.note or 'No note recorded.' }}"
                           data-set-load="{% for l in a.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
+                          data-set-location="{{ a.location or 'Not recorded' }}"
+                          data-set-coords="{% if a.gps %}{{ a.gps.lat }}, {{ a.gps.lng }}{% endif %}"
                           data-set-proof="{{ url_for('collector.proof', relative=a.proof) if a.proof else '' }}"
                           aria-label="View activity for {{ a.owner_name }}">
                     {{ icon('eye', 'icon--sm') }}

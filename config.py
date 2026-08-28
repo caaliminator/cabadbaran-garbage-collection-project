@@ -109,8 +109,66 @@ class Config:
     # exist purely so an empty map opens somewhere sensible.
     MAP_DEFAULT_CENTER = (9.1226, 125.5344)
     MAP_DEFAULT_ZOOM = 12
-    MAP_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-    MAP_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors"
+
+    # The basemaps offered in the map's layer control. The first entry, or the
+    # one flagged default, is the one a map opens on.
+    #
+    # There are two rather than one because they fail differently.
+    # OpenStreetMap is drawn from what volunteers have mapped, and outside the
+    # Poblacion much of Cabadbaran is simply not drawn yet -- that is a gap in
+    # the data, not something the app can render its way out of. Satellite
+    # imagery does not depend on anyone having traced a road, so it shows the
+    # ground as it is; what it cannot give you is street names.
+    #
+    # A keyed provider (MapTiler, Thunderforest, Stadia) is another entry in
+    # this tuple and nothing else -- `url`, `attribution`, done. Google is the
+    # exception: its terms do not allow its tiles to be pulled into Leaflet,
+    # so using Google means their Maps JavaScript API and a billing-enabled
+    # key, which is a different map library on the page, not a URL swap.
+    #
+    #   key           stable id, used by nothing but this file for now
+    #   label         what the layer control shows
+    #   url           tile template
+    #   label_url     optional transparent overlay of place names, drawn on
+    #                 top -- imagery with no names is hard to navigate
+    #   max_zoom      how far in the map lets you go on this basemap
+    #   max_native_zoom  last level the provider actually has tiles for, when
+    #                 that is shallower than max_zoom -- Leaflet then upscales
+    #                 its deepest real tile instead of requesting one that
+    #                 does not exist and painting the provider's grey
+    #                 "no data" square over the city
+    MAP_BASEMAPS = (
+        {
+            "key": "streets",
+            "label": "Streets",
+            "default": True,
+            "url": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "attribution": "&copy; OpenStreetMap contributors",
+            "max_zoom": 19,
+        },
+        {
+            "key": "satellite",
+            "label": "Satellite",
+            "url": "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                   "World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            "label_url": "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                         "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+            "attribution": "Tiles &copy; Esri &mdash; Source: Esri, Maxar, "
+                           "Earthstar Geographics, and the GIS User Community",
+            # Esri's imagery over Cabadbaran is real to z18 and a placeholder
+            # tile beyond it (checked against the provider, not assumed), so
+            # the last two levels are an upscale of z18. Blurry, but it keeps
+            # the ground visible instead of replacing it with a grey square,
+            # and it means switching basemaps never forces a zoom-out.
+            "max_zoom": 19,
+            "max_native_zoom": 18,
+        },
+    )
+
+    # "The" basemap, for callers that only want one -- the status endpoint.
+    # Derived so it can never disagree with the list above.
+    MAP_TILE_URL = MAP_BASEMAPS[0]["url"]
+    MAP_TILE_ATTRIBUTION = MAP_BASEMAPS[0]["attribution"]
 
     # ---- Hotspot layer ----------------------------------------------------
     # On by default: in "derived" mode the layer computes hotspots from Not

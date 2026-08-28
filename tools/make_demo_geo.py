@@ -238,6 +238,33 @@ def build(barangays: list[dict]) -> tuple[dict, list]:
     return zones, mrfs
 
 
+def write(barangays: list[dict], announce=print) -> list[Path]:
+    """
+    Build both files and write them to `data/geo/`, returning what was written.
+
+    Split out of main() so app.py can call it on a first local run: the map is
+    unusable without geometry, and a page that cannot draw a barangay cannot
+    zoom to one either. `announce` is print for the CLI and a no-op for the
+    startup path, which does its own logging.
+    """
+    zones, mrfs = build(barangays)
+
+    geo_dir = Path(Config.GEO_DIR)
+    geo_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for filename, payload in ((geo_service.ZONES_FILE, zones),
+                              (geo_service.MRFS_FILE, mrfs)):
+        target = geo_dir / filename
+        target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        announce(f"  wrote {target}")
+        written.append(target)
+
+    # geo_service caches on mtime; drop it so the next request sees the new
+    # geometry rather than the stub it loaded a moment ago.
+    geo_service.clear_cache()
+    return written
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stdout", action="store_true",
@@ -250,22 +277,13 @@ def main() -> int:
         print("No barangays in the store. Run `python seed.py` first.")
         return 1
 
-    zones, mrfs = build(barangays)
-
     if args.stdout:
+        zones, mrfs = build(barangays)
         print(json.dumps(zones, indent=2))
         print(json.dumps(mrfs, indent=2))
         return 0
 
-    geo_dir = Path(Config.GEO_DIR)
-    geo_dir.mkdir(parents=True, exist_ok=True)
-    for filename, payload in ((geo_service.ZONES_FILE, zones),
-                              (geo_service.MRFS_FILE, mrfs)):
-        (geo_dir / filename).write_text(
-            json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        print(f"  wrote {geo_dir / filename}")
-
-    geo_service.clear_cache()
+    write(barangays)
     status = geo_service.status()
     print(f"\n  zones: {status['zones']['loaded']}/{status['zones']['total']} "
           f"with geometry")

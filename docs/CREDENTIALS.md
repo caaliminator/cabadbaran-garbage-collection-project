@@ -21,6 +21,35 @@ pages are built mobile-first, and that is how they are meant to be seen.
 
 ---
 
+## Offline and local runs
+
+The same four logins work with no network and no deploy. `data/` is gitignored
+— it holds password hashes — so a fresh clone starts with no accounts at all,
+and the login page rejects every password because there is nothing to match
+against. `python app.py` handles that itself: when the user collection is
+empty it runs the seed first, then serves the app. Nothing to remember, and it
+is the same `seed_password()` the deploy uses, so the credentials are the same
+in both places.
+
+It only fires on an empty store, so it can never overwrite records you have
+entered. To seed by hand instead, or to see the full output when something
+goes wrong:
+
+```bash
+python seed.py --demo
+```
+
+The same startup pass also writes the illustrative barangay geometry when
+`data/geo/` is still placeholders, because a map with no polygons cannot zoom
+to a barangay — the filter works by fitting a polygon's bounds. Real GeoJSON
+already in `data/geo/` is never touched.
+
+`AUTO_SEED=0` switches the automatic path off; `AUTO_SEED=1` forces it on in
+production, where it is off by default because the host seeds in its start
+command.
+
+---
+
 ## The rest of the cast
 
 `tools/make_demo_day.py` creates a working set of accounts as well, all on the

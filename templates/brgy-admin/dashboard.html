@@ -94,6 +94,8 @@
                           data-set-reason="{{ r.reason or '—' }}"
                           data-set-note="{{ r.note or 'No note recorded.' }}"
                           data-set-load="{% for l in r.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
+                          data-set-location="{{ r.entry.location or 'Not recorded' }}"
+                          data-set-coords="{% if r.entry.gps %}{{ r.entry.gps.lat }}, {{ r.entry.gps.lng }}{% endif %}"
                           data-set-proof="{{ url_for('collector.proof', relative=r.entry.image_proof_path) if r.entry.image_proof_path else '' }}"
                           aria-label="View entry for {{ r.owner_name }}">
                     {{ icon('eye', 'icon--sm') }}

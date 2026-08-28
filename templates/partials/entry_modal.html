@@ -1,7 +1,8 @@
 {% from 'partials/icons.html' import icon %}
 
 {# ===========================================================================
-   Full detail of one collection entry, including the image proof.
+   Full detail of one collection entry: where it happened and the image
+   proof taken there.
 
    Shared by the barangay dashboard, Collections, and the City Hall Property
    page. The proof <img> is only shown when the trigger supplied a URL, and
@@ -37,6 +38,17 @@
         <span class="kv__val text-sm" data-fill="load">—</span>
       </div>
 
+      {# Where it happened. Two answers, because they come from different
+         places and can disagree: what the collector wrote down, and the GPS
+         their phone recorded at the stop. #}
+      <div class="kv">
+        <span class="kv__key">Location</span>
+        <span class="kv__val">
+          <span class="text-sm" data-fill="location">—</span>
+          <span class="sub mono" data-fill="coords">—</span>
+        </span>
+      </div>
+
       <div class="kv">
         <span class="kv__key">Note</span>
         <span class="kv__val text-sm" data-fill="note">—</span>
@@ -44,6 +56,9 @@
 
       <div data-proof-wrap hidden>
         <span class="kv__key">Image proof</span>
+        <p class="text-xs muted" style="margin:var(--sp-1) 0 0">
+          Taken by the collector at the location above.
+        </p>
         <img class="dropzone__preview" data-proof-img alt="Image proof for this entry"
              style="margin-top:var(--sp-2)">
       </div>

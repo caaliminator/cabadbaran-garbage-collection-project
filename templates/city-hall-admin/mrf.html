@@ -124,6 +124,10 @@
                       data-set-operator="{{ r.operator }}"
                       data-set-total="{{ r.load.total }}"
                       data-set-status="{{ r.status }}"
+                      data-set-when="{{ r.date_display }}{% if r.time_display %} · {{ r.time_display }}{% endif %}"
+                      data-set-place="{{ r.location.name or r.mrf_name }}"
+                      data-set-coords="{{ r.location.coords or '—' }}"
+                      data-set-coordsource="{{ r.location.source }}"
                       data-set-reason="{{ r.reason or '—' }}"
                       data-set-note="{{ r.note or 'No notes recorded.' }}"
                       aria-label="View pickup details for {{ r.barangay }}">
@@ -213,6 +217,7 @@
     </div>
     <div class="modal__body">
       <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Date</span><span class="kv__val" data-fill="when">—</span></div>
         <div class="kv"><span class="kv__key">Source Schedule Day</span><span class="kv__val" data-fill="source">—</span></div>
         <div class="kv"><span class="kv__key">Waste Type</span><span class="kv__val" data-fill="waste">—</span></div>
         <div class="kv"><span class="kv__key">Assigned Truck</span><span class="kv__val mono" data-fill="truck">—</span></div>
@@ -221,6 +226,15 @@
         <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
         <div class="kv"><span class="kv__key">Reason</span><span class="kv__val" data-fill="reason">—</span></div>
       </div>
+      <div class="kv" style="margin-top:var(--sp-3)">
+        <span class="kv__key">Location</span>
+        <span class="kv__val">
+          <span data-fill="place">—</span>
+          <span class="sub"><span class="mono" data-fill="coords">—</span>
+            · <span data-fill="coordsource">—</span></span>
+        </span>
+      </div>
+
       <div class="kv" style="margin-top:var(--sp-3)">
         <span class="kv__key">Note</span>
         <span class="kv__val text-sm" data-fill="note">—</span>

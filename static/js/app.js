@@ -208,16 +208,6 @@
           modal.querySelectorAll('[data-user-form]').forEach((f) => RoleFields.sync(f));
           if (modal.matches('[data-user-form]')) RoleFields.sync(modal);
 
-          // Multi-selections run last, after any dependent control has been
-          // rebuilt: the purok pills only exist once the barangay is set.
-          modal.querySelectorAll('[data-fill-selection]').forEach((box) => {
-            const wanted = (btn.dataset[`set${cap(box.dataset.fillSelection)}`] || '')
-              .split(',').map((s) => s.trim()).filter(Boolean);
-            box.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-              cb.checked = wanted.includes(cb.value);
-            });
-          });
-
           // An image proof only exists on some entries, so its block is
           // hidden rather than left showing a broken image.
           const proofWrap = modal.querySelector('[data-proof-wrap]');
@@ -228,6 +218,8 @@
             if (img) img.src = url || '';
           }
 
+          // Checkbox groups run last, after any dependent control has been
+          // rebuilt by the handlers above.
           modal.querySelectorAll('[data-fill-checks]').forEach((box) => {
             const wanted = (btn.dataset[`set${cap(box.dataset.fillChecks)}`] || '')
               .split(',').map((s) => s.trim()).filter(Boolean);
@@ -697,74 +689,6 @@
   };
 
   /* ======================================================================
-     PUROK COVERAGE
-
-     Puroks belong to a barangay, so the barangay select rebuilds the pill
-     set beneath it. Offering all puroks regardless of barangay would let an
-     admin assign a collector to a purok that does not exist there.
-
-     The map arrives as data-purok-map='{"brgy-01": ["Purok 1", ...]}' from
-     barangays.json -- no purok list is hardcoded in the template or here.
-     ====================================================================== */
-
-  const PurokFields = {
-    init() {
-      $$('[data-purok-form]').forEach((form) => {
-        const barangay = form.querySelector('select[name="barangay_id"]');
-        const target = form.querySelector('[data-purok-target]');
-        if (!barangay || !target) return;
-
-        let map = {};
-        try {
-          map = JSON.parse(form.dataset.purokMap || '{}');
-        } catch (err) {
-          map = {};
-        }
-
-        const render = () => {
-          // Remember ticks across a barangay change so an accidental reselect
-          // does not silently wipe the coverage the admin just chose.
-          const checked = new Set(
-            Array.from(target.querySelectorAll('input:checked')).map((i) => i.value)
-          );
-          const puroks = map[barangay.value] || [];
-          target.innerHTML = '';
-
-          if (!puroks.length) {
-            const hint = document.createElement('p');
-            hint.className = 'text-sm muted';
-            hint.textContent = barangay.value
-              ? 'This barangay has no puroks recorded yet.'
-              : 'Choose a barangay first.';
-            target.appendChild(hint);
-            return;
-          }
-
-          puroks.forEach((purok, index) => {
-            const label = document.createElement('label');
-            label.className = 'pill';
-            const input = document.createElement('input');
-            input.type = 'checkbox';
-            input.name = 'purok_coverage';
-            input.value = purok;
-            input.checked = checked.has(purok);
-            const short = document.createElement('span');
-            short.textContent = `P${index + 1}`;
-            const full = document.createElement('span');
-            full.className = 'sr-only';
-            full.textContent = purok;
-            label.append(input, short, full);
-            target.appendChild(label);
-          });
-        };
-
-        barangay.addEventListener('change', render);
-        render();
-      });
-    },
-  };
-
-  /* ======================================================================
      ROLE-DEPENDENT FORM FIELDS
 
      A barangay admin needs a barangay; a collector needs a barangay and a
@@ -920,7 +844,6 @@
     Geo.init();
     Dropzone.init();
     RoleFields.init();
-    PurokFields.init();
     Duty.init();
     ReportForm.init();
   }

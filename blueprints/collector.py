@@ -136,8 +136,7 @@ def tricycle_record(property_id):
     # city by editing the URL.
     if not prop or not assignment:
         abort(404)
-    if (prop.get("barangay_id") != assignment.get("barangay_id")
-            or prop.get("purok") not in (assignment.get("purok_coverage") or [])):
+    if prop.get("barangay_id") != assignment.get("barangay_id"):
         abort(403, description="That property is outside your assigned route.")
 
     entry = collection_service.entry_for(property_id)
