@@ -88,19 +88,44 @@
       if (badge) this.setBadge((Number(badge.textContent) || 0) + 1);
 
       const list = $('[data-notification-list]');
-      if (list) {
-        const row = document.createElement('div');
-        row.className = 'alert-row alert-row--unread';
-        row.innerHTML =
-          `<span class="alert-row__icon alert-row__icon--${n.tone || 'info'}"></span>` +
-          '<div style="min-width:0"><p class="alert-row__title"></p>' +
-          '<p class="alert-row__body"></p></div>';
-        row.querySelector('.alert-row__title').textContent = n.title || '';
-        row.querySelector('.alert-row__body').textContent = n.message || '';
-        list.prepend(row);
-      }
+      if (list) list.prepend(this.buildRow(list, n));
 
       this.toast(n.message, n.tone);
+    },
+
+    /* An alert that arrives over the socket has to look and behave exactly
+       like one rendered by partials/topbar.html -- same classes, and a link
+       when it leads somewhere. A row that was styled differently, or that
+       alone refused to open, would read as a glitch. */
+    buildRow(list, n) {
+      const tone = n.tone === 'danger' || n.tone === 'warning' ? n.tone : 'info';
+      const template = list.dataset.notificationOpen || '';
+      const role = list.dataset.viewerRole || '';
+      const linkable = template && n.id
+        && Array.isArray(n.link_roles) && n.link_roles.indexOf(role) !== -1;
+
+      const row = document.createElement(linkable ? 'a' : 'div');
+      row.className = 'pop__item pop__item--unread' + (linkable ? ' pop__item--link' : '');
+      if (linkable) row.href = template.replace('__id__', encodeURIComponent(n.id));
+
+      const mark = document.createElement('span');
+      mark.className = `stat__icon stat__icon--${tone}`;
+      mark.style.cssText = 'width:32px;height:32px;border-radius:10px';
+
+      const body = document.createElement('div');
+      body.style.cssText = 'flex:1;min-width:0';
+      // textContent throughout: a title or message can carry a barangay or
+      // owner name, and innerHTML would make that markup.
+      const title = document.createElement('p');
+      title.className = 'alert-item__title';
+      title.textContent = n.title || '';
+      const text = document.createElement('p');
+      text.className = 'alert-item__body';
+      text.textContent = n.message || '';
+      body.append(title, text);
+
+      row.append(mark, body);
+      return row;
     },
 
     setBadge(count) {

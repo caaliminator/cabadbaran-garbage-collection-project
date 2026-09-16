@@ -131,10 +131,36 @@ def mrf_card(barangay_id: str, date=None) -> dict:
     }
 
 
+def _may_take_over(existing: dict, status: str) -> bool:
+    """
+    Whether a second truck may record over the day's existing pickup.
+
+    Normally no: two trucks recording the same MRF on the same day means one
+    of them is wrong, and the load would be counted twice.
+
+    The exception is the one the carry-over flow depends on. If the record
+    standing is a *miss*, the waste is still in the MRF -- and City Hall
+    reassigning the stop to another truck for the same day is exactly the
+    rescue the Carry-Over page exists to arrange. Refusing it left the admin
+    able to make an arrangement the assigned operator could not carry out, and
+    the load sitting there until tomorrow for no reason.
+
+    Only a collection may take over a miss. A second truck recording another
+    *miss* would overwrite the first truck's reason and photo with its own,
+    and two trucks failing at the same MRF on the same day is a conversation
+    for the admin, not a record to silently replace.
+
+    The miss itself is not lost: the carry-over keeps its own copy of every
+    attempt -- the date, the truck, the operator and the reason -- which is
+    what the Missed Collection history is built from.
+    """
+    return existing.get("status") == NOT_COLLECTED and status == COLLECTED
+
+
 def assignment_for(operator_id: str) -> dict | None:
     for row in storage.find(assignment_service.TRUCK_COLLECTION,
                             operator_id=operator_id):
-        if row.get("status") in assignment_service.ACTIVE_STATUSES:
+        if assignment_service.is_active(row):
             return row
     return None
 
@@ -195,7 +221,8 @@ def save_pickup(form, barangay_id: str, operator: dict, date=None) -> dict:
     if existing and existing.get("delivery_id"):
         v.fail("form", "That pickup has already been delivered to the landfill "
                        "and can no longer be changed.")
-    elif existing and existing.get("operator_id") != operator["id"]:
+    elif (existing and existing.get("operator_id") != operator["id"]
+            and not _may_take_over(existing, status)):
         v.fail("form", "Another truck already recorded this MRF today.")
 
     v.raise_if_invalid()
@@ -256,7 +283,7 @@ def auto_mark_missed(date, actor: str = "system") -> list[dict]:
         return []
 
     covered = {b for row in storage.read(assignment_service.TRUCK_COLLECTION)
-               if row.get("status") in assignment_service.ACTIVE_STATUSES
+               if assignment_service.is_active(row)
                for b in (row.get("covered_mrfs") or [])}
 
     created = []
@@ -402,7 +429,17 @@ def city_listing(date=None, barangay_id=None, truck=None, status=None) -> list[d
     """
     day = timeutil.date_str(date or timeutil.today())
     recorded = {r["barangay_id"]: r for r in storage.find("mrf_pickups", date=day)}
-    operators = {u["id"]: u.get("full_name") for u in storage.read("users")}
+    operators = operator_names()
+
+    # A pickup that closed a carry-over is not an ordinary pickup: the load it
+    # carried away had been waiting since an earlier day, and a different truck
+    # was originally supposed to take it. The MRF page has to be able to say
+    # so, which is the "collected carry-overs reflect in the MRF on their
+    # corresponding dates" rule -- the row is already here because the pickup
+    # is dated today; what was missing was that it says where it came from.
+    from services import carryover_service
+    closed = {c["collected_by_pickup"]: c for c in storage.read("carry_overs")
+              if c.get("collected_by_pickup")}
 
     from services import geo_service
     mrf_points = {m["barangay_id"]: m
@@ -421,10 +458,15 @@ def city_listing(date=None, barangay_id=None, truck=None, status=None) -> list[d
             continue
 
         stamp = (entry or {}).get("timestamp")
+        carry_over = closed.get((entry or {}).get("id"))
         rows.append({
             **card,
             "truck": (entry or {}).get("truck_code") or _expected_truck(barangay["id"]),
             "operator": operators.get((entry or {}).get("operator_id")) or "—",
+            # Present only on a row that collected a carry-over; the template
+            # uses it to switch from "Assigned Truck" to original/current.
+            "carry_over": (carryover_service.detail(carry_over)
+                           if carry_over else None),
             "auto_missed": bool((entry or {}).get("auto_missed")),
             "timestamp": stamp,
             "date_display": timeutil.display_date(day),
@@ -434,6 +476,52 @@ def city_listing(date=None, barangay_id=None, truck=None, status=None) -> list[d
             "location": _pickup_location(barangay["id"], entry, mrf_points),
         })
     return rows
+
+
+def operator_names() -> dict:
+    """Operator id -> full name, for the detail dialogs."""
+    return {u["id"]: u.get("full_name") for u in storage.read("users")}
+
+
+def pickup_view(pickup: dict | None, barangay_id: str = "") -> dict:
+    """
+    One recorded pickup, resolved for a detail dialog: display date and time,
+    the truck and the operator by name, the load, and where it happened.
+
+    Shared by the MRF page and the Carry-Over page on purpose. The spec asks
+    for a collected carry-over to show the same details as the MRF pickup that
+    collected it -- the only way to guarantee that is for both to be the same
+    function rather than two templates that happen to agree today.
+    """
+    from services import geo_service
+
+    if not pickup:
+        return {"recorded": False, "date_display": "—", "time_display": "—",
+                "truck": "—", "operator": "—", "load": {"total": "0", "lines": []},
+                "status": PENDING, "reason": "", "note": "",
+                "location": {"name": "", "coords": "", "source": ""}}
+
+    stamp = timeutil.parse_stamp(pickup.get("timestamp"))
+    points = {m["barangay_id"]: m for m in geo_service.mrf_locations().get("mrfs", [])}
+    bid = barangay_id or pickup.get("barangay_id")
+
+    return {
+        "recorded": True,
+        "id": pickup.get("id"),
+        "date": pickup.get("date"),
+        "date_display": timeutil.display_date(pickup.get("date")),
+        "time_display": timeutil.display_time(stamp) if stamp else "—",
+        "source_schedule_day": pickup.get("source_schedule_day") or "—",
+        "waste_type": pickup.get("waste_type") or "—",
+        "truck": pickup.get("truck_code") or "—",
+        "operator": operator_names().get(pickup.get("operator_id")) or "—",
+        "load": pickup.get("load") or {"total": "0", "lines": []},
+        "status": pickup.get("status"),
+        "reason": pickup.get("reason") or "",
+        "note": pickup.get("note") or "",
+        "auto_missed": bool(pickup.get("auto_missed")),
+        "location": _pickup_location(bid, pickup, points),
+    }
 
 
 def _pickup_location(barangay_id: str, entry: dict | None,
@@ -466,7 +554,7 @@ def _pickup_location(barangay_id: str, entry: dict | None,
 def _expected_truck(barangay_id: str) -> str:
     """Which truck is supposed to collect here, for a barangay with no record."""
     for row in storage.read(assignment_service.TRUCK_COLLECTION):
-        if (row.get("status") in assignment_service.ACTIVE_STATUSES
+        if (assignment_service.is_active(row)
                 and barangay_id in (row.get("covered_mrfs") or [])):
             return row.get("truck_code") or "—"
     return "Unassigned"

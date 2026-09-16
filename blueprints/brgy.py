@@ -116,6 +116,7 @@ def dashboard():
         mrf=mrf_service.mrf_card(barangay_id, date),
         today_row=schedule_service.for_date(date),
         map_barangays=[(barangay_id, user.get("barangay"))],
+        selected_date=date,
     )
 
 
@@ -241,13 +242,29 @@ def collections():
             "totals": collection_service.totals(own),
         })
 
+    # Who each row's entry was recorded by, and -- for a property nobody has
+    # reached yet -- who is expected to. Without this the detail dialog had a
+    # hardcoded dash where the collector's name belongs.
+    expected = next((r for r in collector_rows
+                     if r.get("status") in assignment_service.ACTIVE_STATUSES), None)
+    rows = collection_service.route_with_status(properties, date)
+    for row in rows:
+        entry = row.get("entry")
+        if entry:
+            who = users.get(entry.get("collector_id")) or {}
+            row["collector"] = who.get("full_name") or "Deleted account"
+            row["vehicle"] = entry.get("tricycle_code") or "—"
+        else:
+            row["collector"] = (expected or {}).get("collector") or "Not assigned"
+            row["vehicle"] = (expected or {}).get("tricycle") or "—"
+
     return render_template(
         "brgy-admin/collections.html",
         page_title="Collections",
         counts=collection_service.counts(properties, date),
         totals=collection_service.totals(entries),
         collectors=collector_rows,
-        rows=collection_service.route_with_status(properties, date),
+        rows=rows,
         selected_date=date,
         is_today=date == timeutil.today_str(),
         today=timeutil.today_str(),

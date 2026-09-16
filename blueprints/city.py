@@ -14,11 +14,14 @@ from blueprints.auth import current_user, role_required
 from services import (assignment_service, carryover_service, collection_service,
                       duty_service, history_service, mrf_service,
                       property_service, public_report_service, report_service,
-                      schedule_service, storage, timeutil, user_service,
-                      vehicle_service)
+                      reset_service, schedule_service, storage, timeutil,
+                      unavailable_service, user_service, vehicle_service)
 from services.validation import ValidationError
 
 city_bp = Blueprint("city", __name__)
+
+# Typed into the Danger Zone dialog before the wipe will run.
+RESET_CONFIRM_WORD = "DELETE"
 
 # Sidebar model: grouped exactly like the design reference.
 NAV = [
@@ -30,6 +33,7 @@ NAV = [
         ("city.schedule", "Waste Schedule", "calendar"),
         ("city.tricycle", "Tricycle", "tricycle"),
         ("city.truck", "Truck", "truck"),
+        ("city.unavailability", "Unavailability", "alert"),
     ]},
     {"group": "Monitoring", "items": [
         ("city.tracking", "Live Tracking", "radar"),
@@ -38,6 +42,7 @@ NAV = [
         ("city.carry_over", "Carry-Over", "repeat"),
     ]},
     {"group": "Reports", "items": [
+        ("city.resident_reports", "Resident Reports", "home"),
         ("city.reports", "History & Reports", "file"),
     ]},
     {"group": "Settings", "items": [
@@ -95,6 +100,7 @@ def dashboard():
         activity.append({
             "timestamp": row["entry"].get("timestamp"),
             "time": timeutil.display_time(stamp) if stamp else "—",
+            "date": timeutil.display_date(date),
             "barangay": names.get(row.get("barangay_id"), "—"),
             "collector": users.get(row["entry"].get("collector_id")) or "Resident report",
             "vehicle": row["entry"].get("tricycle_code") or "—",
@@ -106,13 +112,13 @@ def dashboard():
             "note": row["note"],
             "load": row["load"],
             "proof": row["entry"].get("image_proof_path"),
-            "location": row["entry"].get("location") or "",
             "gps": row["entry"].get("gps"),
         })
     for pickup in storage.find("mrf_pickups", date=date):
         stamp = timeutil.parse_stamp(pickup.get("timestamp"))
         activity.append({
             "timestamp": pickup.get("timestamp"),
+            "date": timeutil.display_date(date),
             "time": timeutil.display_time(stamp) if stamp else "—",
             "barangay": names.get(pickup.get("barangay_id"), "—"),
             "collector": users.get(pickup.get("operator_id")) or "Automatic",
@@ -261,6 +267,23 @@ def schedule():
     )
 
 
+def _replacing(kind: str):
+    """
+    The unavailability request this assignment is being created to cover, from
+    ?replace=<id>. Returns None unless it is an approved request for a
+    collector of the right vehicle type -- the form prefills from it, and the
+    saved assignment is linked back to it.
+    """
+    request_id = request.args.get("replace") or request.form.get("replace_request_id")
+    if not request_id:
+        return None
+    row = unavailable_service.get(request_id)
+    if not row or row.get("status") != unavailable_service.APPROVED:
+        return None
+    wanted = "tricycle_collector" if kind == "tricycle" else "truck_collector"
+    return row if row.get("role") == wanted else None
+
+
 @city_bp.route("/tricycle", methods=["GET", "POST"])
 @role_required("city_admin")
 def tricycle():
@@ -275,10 +298,16 @@ def tricycle():
                 flash("Assignment ended. The collector and unit are free again.",
                       "success")
             else:
-                _, warnings = assignment_service.save_tricycle_assignment(
+                saved, warnings = assignment_service.save_tricycle_assignment(
                     request.form, assignment_id, actor)
                 flash("Tricycle assignment updated." if assignment_id
                       else "Tricycle assignment saved.", "success")
+                covering = _replacing("tricycle")
+                if covering:
+                    unavailable_service.link_replacement(
+                        covering["id"], "tricycle", saved["id"], actor)
+                    flash(f"Recorded as the replacement covering "
+                          f"{covering.get('user_name')}'s absence.", "success")
                 for note in warnings:
                     flash(note, "warning")
         except ValidationError as exc:
@@ -308,9 +337,10 @@ def tricycle():
         ],
         collectors=user_service.collectors("tricycle_collector"),
         barangays=user_service.barangay_options(),
-        tricycles=vehicle_service.available(vehicle_service.TRICYCLE),
+        tricycles=vehicle_service.options(vehicle_service.TRICYCLE),
         registry=vehicle_service.with_status(vehicle_service.TRICYCLE),
         statuses=assignment_service.STATUS_CHOICES,
+        replacing=_replacing("tricycle"),
     )
 
 
@@ -328,10 +358,16 @@ def truck():
                 flash("Assignment ended. The operator and truck are free again.",
                       "success")
             else:
-                _, warnings = assignment_service.save_truck_assignment(
+                saved, warnings = assignment_service.save_truck_assignment(
                     request.form, assignment_id, actor)
                 flash("Truck assignment updated." if assignment_id
                       else "Truck assignment saved.", "success")
+                covering = _replacing("truck")
+                if covering:
+                    unavailable_service.link_replacement(
+                        covering["id"], "truck", saved["id"], actor)
+                    flash(f"Recorded as the replacement covering "
+                          f"{covering.get('user_name')}'s absence.", "success")
                 for note in warnings:
                     flash(note, "warning")
         except ValidationError as exc:
@@ -363,9 +399,69 @@ def truck():
         uncovered=assignment_service.uncovered_barangays(),
         operators=user_service.collectors("truck_collector"),
         barangays=user_service.barangay_options(),
-        trucks=vehicle_service.available(vehicle_service.TRUCK),
+        trucks=vehicle_service.options(vehicle_service.TRUCK),
         registry=vehicle_service.with_status(vehicle_service.TRUCK),
         statuses=assignment_service.STATUS_CHOICES,
+        replacing=_replacing("truck"),
+    )
+
+
+@city_bp.route("/unavailability", methods=["GET", "POST"])
+@role_required("city_admin")
+def unavailability():
+    """
+    The worklist for "Unavailable for Duty" requests: approve or reject one,
+    and see which Temporary Replacement is covering it.
+
+    Rejected requests stay on the list. They are part of the record of why a
+    collector was on the route that day, and hiding them would leave the
+    Availability column unexplained.
+    """
+    actor = current_user()["id"]
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        try:
+            if action in ("approve", "reject"):
+                decision = (unavailable_service.APPROVED if action == "approve"
+                            else unavailable_service.REJECTED)
+                row = unavailable_service.decide(
+                    request.form.get("id"), decision, actor,
+                    request.form.get("decision_note", ""))
+                who = row.get("user_name") or "The collector"
+                if decision == unavailable_service.APPROVED:
+                    flash(f"Approved. {who} is off the route for those dates — "
+                          f"assign a temporary replacement to cover it.", "success")
+                else:
+                    flash(f"Rejected. {who} stays on their route.", "success")
+            else:
+                flash("Unknown action.", "danger")
+        except ValidationError as exc:
+            for message in exc.errors.values():
+                flash(message, "danger")
+        return redirect(url_for("city.unavailability",
+                                **_filters("status", "role", "search")))
+
+    counts = unavailable_service.counts()
+    return render_template(
+        "city-hall-admin/unavailability.html",
+        page_title="Unavailability",
+        rows=unavailable_service.listing(
+            status=request.args.get("status", ""),
+            role=request.args.get("role", ""),
+            search=request.args.get("search", "")),
+        stats=[
+            ("Awaiting Decision", counts["pending"],
+             "Filed and not yet answered", "alert"),
+            ("Off Duty Today", counts["covering_today"],
+             "Approved or awaiting a decision", "calendar"),
+            ("Needs a Replacement", counts["unassigned"],
+             "Approved for today, nobody assigned", "users"),
+            ("Rejected", counts["rejected"], "Expected on their route", "x"),
+        ],
+        counts=counts,
+        statuses=unavailable_service.STATUS_CHOICES,
+        selected_status=request.args.get("status", ""),
     )
 
 
@@ -448,7 +544,7 @@ def _tricycle_coverage() -> dict:
     """barangay -> the tricycle covering it, from active assignments."""
     coverage = {}
     for row in storage.read(assignment_service.TRICYCLE_COLLECTION):
-        if row.get("status") not in assignment_service.ACTIVE_STATUSES:
+        if not assignment_service.is_active(row):
             continue
         if row.get("barangay_id"):
             coverage[row["barangay_id"]] = row.get("tricycle_code")
@@ -513,10 +609,12 @@ def carry_over():
         return redirect(url_for("city.carry_over"))
 
     counts = carryover_service.counts()
-    # Blank means the open worklist. Only "Collected" is offered as the other
-    # view, so anything else is treated as no filter rather than 404-ing.
-    selected_status = ("Collected" if request.args.get("status") == "Collected"
-                       else "")
+    # Three views, one stage each. Anything unrecognised -- including no
+    # argument at all -- lands on Missed Collection, the stage that is waiting
+    # on this admin, rather than 404-ing.
+    asked = request.args.get("status") or ""
+    selected_status = (asked if asked in carryover_service.STATUSES
+                       else carryover_service.MISSED)
     return render_template(
         "city-hall-admin/carryover.html",
         page_title="Carry-Over",
@@ -525,11 +623,16 @@ def carry_over():
             barangay_id=request.args.get("barangay") or ""),
         counts=counts,
         selected_status=selected_status,
+        statuses=carryover_service.STATUSES,
         stats=[
-            ("Pending Carry-Overs", counts["pending"], "Awaiting collection", "repeat"),
-            ("Not Yet Reassigned", counts["unassigned"], "No truck assigned", "alert"),
-            ("Overdue", counts["overdue"], "Past their rescheduled date", "clock"),
-            ("Closed", counts["collected"], "Collected on a later run", "check"),
+            ("Missed Collection", counts["missed"],
+             "Truck could not collect — needs a decision", "alert"),
+            ("Pending", counts["pending"],
+             "Reassigned and rescheduled", "repeat"),
+            ("Overdue", counts["overdue"],
+             "Past their rescheduled date", "clock"),
+            ("Collected", counts["collected"],
+             "Picked up on a later run", "check"),
         ],
         trucks=vehicle_service.in_service(vehicle_service.TRUCK),
         barangays=user_service.barangay_options(),
@@ -540,6 +643,65 @@ def carry_over():
 def _barangay_name(barangay_id):
     row = storage.find_one("barangays", id=barangay_id)
     return row["name"] if row else barangay_id
+
+
+@city_bp.route("/resident-reports")
+@role_required("city_admin")
+def resident_reports():
+    """
+    What residents have sent in, city-wide.
+
+    Read-only on purpose. A dispute is settled by the barangay admin who knows
+    the route and the collector -- this view is for spotting the pattern across
+    barangays, so it says who has to act rather than acting here.
+
+    Nothing identifying a sender is available to show: the rate-limit key never
+    leaves the service layer, and no name, account, or address of the reporter
+    is captured in the first place. The property is the address the resident
+    picked from a list, which is what makes a report actionable.
+    """
+    barangay_id = request.args.get("barangay") or None
+    wanted = request.args.get("status") or None
+
+    names = {b["id"]: b["name"] for b in storage.read("barangays")}
+    rows = []
+    for row in public_report_service.listing(barangay_id=barangay_id):
+        if wanted and row.get("status_reported") != wanted:
+            continue
+        rows.append({**row,
+                     "barangay_name": names.get(row.get("barangay_id"), "—")})
+
+    everything = public_report_service.listing()
+    missed = sum(1 for r in everything
+                 if r.get("status_reported") == public_report_service.NOT_COLLECTED)
+
+    # Where the reports are coming from, busiest first. Three is enough to read
+    # at a glance; the table is there for the rest.
+    tally = {}
+    for r in everything:
+        if r.get("status_reported") == public_report_service.NOT_COLLECTED:
+            key = names.get(r.get("barangay_id"), "—")
+            tally[key] = tally.get(key, 0) + 1
+    hotspots = sorted(tally.items(), key=lambda kv: -kv[1])[:3]
+
+    return render_template(
+        "city-hall-admin/resident-reports.html",
+        page_title="Resident Reports",
+        rows=rows,
+        stats=[
+            ("Reports Received", len(everything), "From residents, all time", "home"),
+            ("Reported Not Collected", missed, "Residents reporting a miss", "x"),
+            ("Open Disputes", sum(1 for r in everything if r.get("disputed")),
+             "Barangay admins to settle", "alert"),
+            ("Today", len(public_report_service.listing(date=timeutil.today())),
+             "Sent in today", "clock"),
+        ],
+        hotspots=hotspots,
+        barangays=user_service.barangay_options(),
+        statuses=public_report_service.STATUS_CHOICES,
+        selected_barangay=barangay_id or "",
+        selected_status=wanted or "",
+    )
 
 
 @city_bp.route("/reports", methods=["GET", "POST"])
@@ -625,4 +787,41 @@ def report_csv():
 @role_required("city_admin")
 def profile():
     # Change Password posts to auth.change_password (shared by all roles).
-    return render_template("city-hall-admin/profile.html", page_title="Profile")
+    return render_template(
+        "city-hall-admin/profile.html",
+        page_title="Profile",
+        reset_plan=reset_service.plan(),
+        reset_keep=reset_service.kept(),
+        reset_total=sum(reset_service.plan().values()),
+    )
+
+
+@city_bp.route("/reset-data", methods=["POST"])
+@role_required("city_admin")
+def reset_data():
+    """
+    Clear every transactional record, leaving the accounts and the reference
+    data (barangays and their puroks, vehicles, the weekly schedule).
+
+    Irreversible and one click from a page an admin visits for ordinary
+    reasons, so it takes a typed confirmation as well as the CSRF token. A
+    misclick cannot do this; only someone who meant it can.
+    """
+    typed = (request.form.get("confirm") or "").strip().upper()
+    if typed != RESET_CONFIRM_WORD:
+        flash(f'Type {RESET_CONFIRM_WORD} to confirm. Nothing was deleted.',
+              "warning")
+        return redirect(url_for("city.profile"))
+
+    removed = reset_service.run(actor=current_user()["id"])
+    total = sum(removed.values())
+    if not total:
+        flash("There was nothing to remove — the store is already clear.", "info")
+    else:
+        detail = ", ".join(f"{count} {name}" for name, count in removed.items()
+                           if count)
+        flash(f"Removed {total} record(s): {detail}.", "success")
+        flash("Accounts, barangays, puroks, vehicles and the waste schedule "
+              "were kept. Start with User Management, then assign routes.",
+              "info")
+    return redirect(url_for("city.profile"))

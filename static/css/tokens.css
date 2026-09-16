@@ -172,6 +172,11 @@
   --shadow-xl: 0 24px 48px rgba(13, 22, 34, .18);
 
   /* ---- Layout ---- */
+  /* One height for every interactive control on a row, so a button beside a
+     date field can never sit 2px off it. Contexts that want a denser row
+     (.toolbar) override the token rather than restating both rules. */
+  --control-h: 44px;
+
   --rail-w: 264px;
   --rail-w-collapsed: 76px;
   --topbar-h: 68px;
@@ -189,6 +194,9 @@
   --z-scrim: 55;
   --z-pop: 70;
   --z-toast: 90;
+  /* Above the modals: a photo proof is usually opened from inside the
+     View Details dialog, so its viewer has to sit on top of one. */
+  --z-lightbox: 100;
 }
 
 /* ==========================================================================

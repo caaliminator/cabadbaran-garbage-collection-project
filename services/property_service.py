@@ -21,6 +21,50 @@ PROPERTY_TYPES = ("House", "Establishment")
 COMMON_TAGS = ("None Composting", "Composting", "Has Special Waste",
                "No Special Waste", "Senior Citizen", "Business Permit Holder")
 
+# ---------------------------------------------------------------------------
+# Tag exemptions -- days a property is not expected to hand anything over
+# ---------------------------------------------------------------------------
+#
+# Two of the tags above say what a household does NOT produce, so on the days
+# the city collects exactly that, there is nothing at the gate. Without this
+# the property sits Pending all day, drags the collector's completion figure
+# down, and can only be cleared by photographing an empty kerb to prove a
+# negative the barangay already knew.
+#
+# Keyed on the schedule's waste_type, not on the day of the week: the schedule
+# is editable in the admin UI, so Wednesday is not permanently biodegradable.
+#
+# CAVEAT worth knowing before trusting this: on Mon/Wed/Fri the schedule's
+# details are Kitchen Waste, Yard Waste AND "Diaper / Used Tissue / Sanitary
+# Napkins". A composting household composts the first two but still produces
+# the third, so treating the whole day as exempt for them is the city's policy
+# call, not a fact. Narrow it by removing that waste_type here if the client
+# decides those households should still be visited.
+TAG_EXEMPTIONS = {
+    "Composting": {
+        "waste_types": ("Biodegradable and Net Residual Waste",),
+        "note": "Composts their own biodegradable waste",
+    },
+    "No Special Waste": {
+        "waste_types": ("Special Waste",),
+        "note": "Produces no special waste",
+    },
+}
+
+
+def exemption_for(tag: str | None, waste_type: str | None) -> str | None:
+    """
+    Why nothing is expected from this property today, or None.
+
+    A tag alone never exempts anything -- a composting household still has
+    residual waste on a Thursday. It is the pairing of the tag with what is
+    actually being collected that makes the stop pointless.
+    """
+    rule = TAG_EXEMPTIONS.get((tag or "").strip())
+    if not rule or not waste_type:
+        return None
+    return rule["note"] if waste_type in rule["waste_types"] else None
+
 
 def barangay_name(barangay_id: str) -> str | None:
     row = storage.find_one("barangays", id=barangay_id)

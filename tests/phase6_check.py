@@ -1,6 +1,9 @@
 """Phase 6 verification: public viewer, anonymous reports, rate limit, disputes."""
 import shutil, sys, tempfile
+from io import BytesIO
 from pathlib import Path
+
+from werkzeug.datastructures import FileStorage
 
 _ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _ROOT)
@@ -66,8 +69,15 @@ IP_A, IP_B = "203.0.113.10", "203.0.113.99"
 
 print("\n[1] report form options")
 ok("barangay options list all 31", len(public_report_service.barangay_options()) == 31)
-ok("puroks list only those with properties",
-   set(public_report_service.purok_options(B1)) == {"Purok 1", "Purok 2"})
+# Every purok the barangay declares, not just the ones already holding a
+# property: a resident picks their purok to find their own address, and an
+# absent purok reads as "your area is not covered".
+declared = set((storage.find_one("barangays", id=B1) or {}).get("puroks") or [])
+ok("puroks list every purok the barangay declares",
+   declared and set(public_report_service.purok_options(B1)) >= declared)
+ok("puroks keep the barangay's own order",
+   public_report_service.purok_options(B1)[:len(declared)]
+   == list((storage.find_one("barangays", id=B1) or {}).get("puroks") or []))
 ok("properties are scoped to the barangay",
    {p["id"] for p in public_report_service.property_options(B1)} == {p1["id"], p2["id"]})
 ok("purok narrows the list",
@@ -256,6 +266,88 @@ ok("a no-collection day yields no cards", schedule_service.todays_cards() == [])
 ok("and no calendar dots",
    not any(c["has_collection"] for w in schedule_service.month_calendar()["weeks"]
            for c in w))
+
+print("\n[11] a resident's photo")
+storage.write("public_reports", [])
+storage.write("collections", [])
+
+PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+    "01f15c4890000000a49444154789c6360000002000100ffff03000006"
+    "00057b7d5f0000000049454e44ae426082")
+
+def photo(name="kerb.png", data=PNG, mimetype="image/png"):
+    return FileStorage(stream=BytesIO(data), filename=name, content_type=mimetype)
+
+# -- on a property with no collector entry, it becomes the entry's proof ----
+rp = public_report_service.submit(
+    Form({"barangay_id": B1, "property_id": p1["id"],
+          "status_reported": "Not Collected", "comment": "Still on the kerb"}),
+    IP_A, files={"photo": photo()})
+ok("the report keeps the photo path", bool(rp["image_proof_path"]))
+ok("the file is on disk",
+   (Path(Config.UPLOAD_DIR) / rp["image_proof_path"]).is_file())
+ok("a report with no entry carries the photo onto the entry it creates",
+   collection_service.entry_for(p1["id"])["image_proof_path"] == rp["image_proof_path"])
+
+# -- against a collector's entry, it is filed ALONGSIDE, never over ---------
+storage.write("public_reports", [])
+storage.write("collections", [])
+kept = collection_service.save_entry(
+    Form({"status": "Not Collected", "reason": "Not segregated properly"}),
+    {"proof": photo("collector.png")}, p2, COL)
+rp2 = public_report_service.submit(
+    Form({"barangay_id": B1, "property_id": p2["id"],
+          "status_reported": "Collected"}), IP_B, files={"photo": photo()})
+entry = collection_service.entry_for(p2["id"])
+ok("the collector's own photo is untouched",
+   entry["image_proof_path"] == kept["image_proof_path"])
+ok("the resident's photo is filed alongside it",
+   entry["resident_proof_path"] == rp2["image_proof_path"]
+   and entry["resident_proof_path"] != entry["image_proof_path"])
+ok("both photos exist on disk",
+   (Path(Config.UPLOAD_DIR) / entry["image_proof_path"]).is_file()
+   and (Path(Config.UPLOAD_DIR) / entry["resident_proof_path"]).is_file())
+
+# -- who may look at each one ----------------------------------------------
+collector = COL   # already a public_view dict, not an id
+brgy_admin = {"role": "barangay_admin", "barangay_id": B1}
+other_brgy = {"role": "barangay_admin", "barangay_id": B2}
+city = {"role": "city_admin"}
+
+own = collection_service.proof_owner(entry["image_proof_path"])
+res = collection_service.proof_owner(entry["resident_proof_path"])
+ok("a collector may still see their OWN proof",
+   collection_service.may_view_proof(own, collector) is True)
+ok("a collector may NOT see the resident's photo disputing them",
+   collection_service.may_view_proof(res, collector) is False)
+ok("the barangay admin may see the resident's photo",
+   collection_service.may_view_proof(res, brgy_admin) is True)
+ok("another barangay's admin may not",
+   collection_service.may_view_proof(res, other_brgy) is False)
+ok("the city admin may see it",
+   collection_service.may_view_proof(res, city) is True)
+ok("a path nothing references resolves to nothing",
+   collection_service.proof_owner("2026-01-01/nope.png") is None)
+
+# -- validation -------------------------------------------------------------
+fails("a non-image is refused",
+      lambda: public_report_service.submit(
+          Form({"barangay_id": B1, "property_id": p1["id"],
+                "status_reported": "Collected"}), IP_A,
+          files={"photo": photo("payload.exe", b"MZ", "application/octet-stream")}),
+      "proof")
+fails("an oversized image is refused",
+      lambda: public_report_service.submit(
+          Form({"barangay_id": B1, "property_id": p1["id"],
+                "status_reported": "Collected"}), IP_A,
+          files={"photo": photo("huge.png", PNG + b"0" * Config.MAX_PROOF_BYTES)}),
+      "proof")
+ok("a rejected photo files no report", storage.count("public_reports") == 1)
+ok("a report with no photo is still fine",
+   public_report_service.submit(
+       Form({"barangay_id": B1, "property_id": p1["id"],
+             "status_reported": "Collected"}), IP_B)["image_proof_path"] is None)
 
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{sum(results)}/{len(results)} checks passed")

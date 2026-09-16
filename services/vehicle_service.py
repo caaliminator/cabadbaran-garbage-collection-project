@@ -75,6 +75,43 @@ def available(vehicle_type: str, including: str | None = None) -> list[str]:
     return sorted(codes)
 
 
+def options(vehicle_type: str, including: str | None = None) -> list[dict]:
+    """
+    Every in-service unit for an assign dropdown, each saying whether it is
+    already taken and by whom. Free units sort first.
+
+    `available()` returns only the free codes, which left the admin unable to
+    tell a short list from a broken one. Listing the taken units, labelled and
+    unselectable, answers "where is TRI-05?" without letting anyone pick it.
+    """
+    holders = _holders()
+    out = []
+    for vehicle in all_vehicles(vehicle_type):
+        if vehicle.get("status") == "inactive":
+            continue
+        code = vehicle["code"]
+        taken = code in holders and code != including
+        out.append({"code": code, "assigned": taken,
+                    "assigned_to": holders.get(code, "") if taken else ""})
+    return sorted(out, key=lambda v: (v["assigned"], v["code"]))
+
+
+def _holders() -> dict[str, str]:
+    """vehicle code -> the name of whoever currently holds it."""
+    from services import assignment_service
+
+    users = {u["id"]: u.get("full_name") for u in storage.read("users")}
+    out = {}
+    for collection, code_field, who_field in (
+            (assignment_service.TRICYCLE_COLLECTION, "tricycle_code", "collector_id"),
+            (assignment_service.TRUCK_COLLECTION, "truck_code", "operator_id")):
+        for row in storage.read(collection):
+            if not assignment_service.is_active(row) or not row.get(code_field):
+                continue
+            out[row[code_field]] = users.get(row.get(who_field)) or "another collector"
+    return out
+
+
 def in_service(vehicle_type: str) -> list[str]:
     """
     Every registered unit that has not been withdrawn, free or not.

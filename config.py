@@ -89,6 +89,14 @@ class Config:
     ALLOWED_PROOF_TYPES = ("image/jpeg", "image/png")
     ALLOWED_PROOF_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
+    # Werkzeug refuses a larger body before reading it. `MAX_PROOF_BYTES` is
+    # checked after the upload has already been buffered, which is fine behind
+    # a login but not on the public report form -- that one takes a file from
+    # anyone at all. The margin over the proof limit covers the rest of the
+    # multipart body (fields, boundaries) so a legitimate 5 MB photo still
+    # gets the clearer "larger than 5 MB" message rather than a bare 413.
+    MAX_CONTENT_LENGTH = MAX_PROOF_BYTES + (1024 * 1024)
+
     # ---- City ------------------------------------------------------------
     CITY_NAME = "Cabadbaran City"
     TOTAL_BARANGAYS = 31

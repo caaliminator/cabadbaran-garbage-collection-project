@@ -1,6 +1,6 @@
 {% extends 'shell.html' %}
 {% from 'partials/icons.html' import icon %}
-{% from 'partials/macros.html' import stat, status, progress_stat, th, empty %}
+{% from 'partials/macros.html' import stat, status, progress_stat, th, empty, alert_row %}
 
 {% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
 
@@ -62,12 +62,12 @@
           <caption class="sr-only">Today's collection entries in this barangay</caption>
           <thead>
             <tr>
-              {{ th('Time') }}
-              {{ th('Purok') }}
-              {{ th('TRI No.') }}
-              {{ th('Status') }}
-              {{ th('Reason') }}
-              <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+              {{ th('Time', w='13%') }}
+              {{ th('Purok', w='15%') }}
+              {{ th('TRI No.', w='14%') }}
+              {{ th('Status', w='17%') }}
+              {{ th('Reason', w='34%') }}
+              <th scope="col" style="width:80px" class="table__actions"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -90,12 +90,12 @@
                           data-set-status="{{ r.status }}"
                           data-set-collector="{{ collectors.get(r.entry.collector_id, '—') }}"
                           data-set-vehicle="{{ r.entry.tricycle_code or '—' }}"
+                          data-set-date="{{ selected_date|date_display }}"
                           data-set-time="{{ r.time }}"
                           data-set-reason="{{ r.reason or '—' }}"
                           data-set-note="{{ r.note or 'No note recorded.' }}"
                           data-set-load="{% for l in r.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
-                          data-set-location="{{ r.entry.location or 'Not recorded' }}"
-                          data-set-coords="{% if r.entry.gps %}{{ r.entry.gps.lat }}, {{ r.entry.gps.lng }}{% endif %}"
+                          data-set-coords="{% if r.entry.gps %}{{ r.entry.gps.lat }}, {{ r.entry.gps.lng }}{% else %}Not captured{% endif %}"
                           data-set-proof="{{ url_for('collector.proof', relative=r.entry.image_proof_path) if r.entry.image_proof_path else '' }}"
                           aria-label="View entry for {{ r.owner_name }}">
                     {{ icon('eye', 'icon--sm') }}
@@ -130,16 +130,7 @@
       </div>
       <div class="card__body card__body--flush">
         {% for a in alerts %}
-          <div class="alert-row {% if a.unread %}alert-row--unread{% endif %}">
-            <span class="alert-row__icon alert-row__icon--{{ a.tone }}" aria-hidden="true">
-              {{ icon(a.icon, 'icon--sm') }}
-            </span>
-            <div style="min-width:0">
-              <p class="alert-row__title">{{ a.title }}</p>
-              <p class="alert-row__body">{{ a.message }}</p>
-            </div>
-            <span class="alert-row__time">{{ a.time_display }}</span>
-          </div>
+          {{ alert_row(a) }}
         {% else %}
           {{ empty('No notifications',
                    'Truck arrival alerts and resident reports will appear here.',

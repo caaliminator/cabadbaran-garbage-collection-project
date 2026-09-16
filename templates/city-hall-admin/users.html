@@ -27,7 +27,8 @@
     {{ csrf_field() }}
     <input type="hidden" name="action" value="create">
 
-    <div class="form__grid">
+    {# Eight fields: 4x2. #}
+    <div class="form__grid form__grid--4">
       {{ field('full_name', 'Full Name', required=True, placeholder='Juan Dela Cruz', autocomplete='name') }}
       {{ select('role', 'Role', roles, required=True, placeholder='Select role…', id='role') }}
       {{ field('username', 'Username', required=True, placeholder='brgy1_admin', autocomplete='off',
@@ -88,13 +89,12 @@
           {{ icon('eye', 'icon--sm') }}{{ icon('eye-off', 'icon--sm') }}
         </button>
       </div>
-    </div>
-
-    <div class="row row--end">
-      <button type="reset" class="btn btn--ghost">Clear</button>
-      <button type="submit" class="btn btn--primary">
-        {{ icon('plus', 'icon--sm') }} Create Account
-      </button>
+      <div class="form__actions">
+        <button type="reset" class="btn btn--ghost">Clear</button>
+        <button type="submit" class="btn btn--primary">
+          {{ icon('plus', 'icon--sm') }} Create Account
+        </button>
+      </div>
     </div>
   </form>
 </section>
@@ -114,14 +114,14 @@
       <caption class="sr-only">System user accounts</caption>
       <thead>
         <tr>
-          {{ th('Full Name', 'name') }}
-          {{ th('Username', 'username') }}
-          {{ th('Role', 'role') }}
-          {{ th('Assigned Barangay', 'barangay') }}
-          {{ th('Vehicle') }}
-          {{ th('Status', 'status') }}
-          {{ th('Date Created') }}
-          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+          {{ th('Full Name', 'name', w='15%') }}
+          {{ th('Username', 'username', w='13%') }}
+          {{ th('Role', 'role', w='12%') }}
+          {{ th('Assigned Barangay', 'barangay', w='13%') }}
+          {{ th('Vehicle', w='10%') }}
+          {{ th('Status', 'status', w='10%') }}
+          {{ th('Date Created', w='11%') }}
+          <th scope="col" style="width:184px" class="table__actions"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>

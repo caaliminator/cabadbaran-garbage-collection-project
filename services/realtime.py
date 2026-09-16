@@ -125,6 +125,12 @@ def notify(audience: str, kind: str, message: str, title: str = "",
         "tone": record["tone"],
         "icon": record["icon"],
         "created_at": record["created_at"],
+        # Which roles this alert leads somewhere for. A room can hold more
+        # than one role -- "public" holds every signed-in viewer -- so the
+        # destination cannot be resolved here. The client compares this
+        # against its own role to decide whether to draw the row as a link,
+        # and the open route works out where it actually goes.
+        "link_roles": sorted(notification_service.LINKS.get(record["type"], {})),
     })
     return record
 

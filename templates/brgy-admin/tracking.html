@@ -1,6 +1,6 @@
 {% extends 'shell.html' %}
 {% from 'partials/icons.html' import icon %}
-{% from 'partials/macros.html' import status, empty %}
+{% from 'partials/macros.html' import status, empty, alert_row %}
 
 {% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
 
@@ -61,16 +61,7 @@
       </div>
       <div class="card__body card__body--flush">
         {% for a in alerts %}
-          <div class="alert-row {% if a.unread %}alert-row--unread{% endif %}">
-            <span class="alert-row__icon alert-row__icon--{{ a.tone }}" aria-hidden="true">
-              {{ icon(a.icon, 'icon--sm') }}
-            </span>
-            <div style="min-width:0">
-              <p class="alert-row__title">{{ a.title }}</p>
-              <p class="alert-row__body">{{ a.message }}</p>
-            </div>
-            <span class="alert-row__time">{{ a.time_display }}</span>
-          </div>
+          {{ alert_row(a) }}
         {% else %}
           {{ empty('No alerts yet',
                    'You will be told here when a City Hall truck is approaching your MRF.',

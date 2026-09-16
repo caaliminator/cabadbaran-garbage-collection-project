@@ -33,6 +33,7 @@ collector_bp = Blueprint("collector", __name__)
 TRICYCLE_NAV = [
     {"group": None, "items": [
         ("collector.tricycle_route", "Property", "home"),
+        ("collector.tricycle_list", "Collection List", "file"),
     ]},
     {"group": "Duty", "items": [
         ("collector.tricycle_unavailable", "Unavailable for Duty", "alert"),
@@ -92,7 +93,7 @@ def _my_assignment():
     user = current_user() or {}
     for row in storage.find(assignment_service.TRICYCLE_COLLECTION,
                             collector_id=user.get("id")):
-        if row.get("status") in assignment_service.ACTIVE_STATUSES:
+        if assignment_service.is_active(row):
             return row
     return None
 
@@ -119,6 +120,43 @@ def tricycle_route():
                  if assignment else None,
         counts=collection_service.counts(properties),
         totals=collection_service.totals(entries),
+        today_row=schedule_service.for_date(),
+        **_shell("tricycle"),
+    )
+
+
+@collector_bp.route("/tricycle/list")
+@role_required("tricycle_collector")
+def tricycle_list():
+    """
+    Today's route as a table rather than a stack of tappable cards.
+
+    Same rows, same scope -- `for_collector` is the only way a property
+    reaches either page, so this cannot show a household the route page would
+    not. The card list wins outdoors, one thumb at a time; a table wins when
+    the collector or a supervisor wants to scan the whole round, sort it, or
+    find one name.
+    """
+    assignment = _my_assignment()
+    properties = property_service.for_collector(assignment)
+    rows = collection_service.route_with_status(properties)
+
+    # Pending first: what is left to do is the reason to open this page.
+    order = {collection_service.PENDING: 0,
+             collection_service.NOT_COLLECTED: 1,
+             collection_service.COLLECTED: 2}
+    rows.sort(key=lambda r: (order.get(r["status"], 3),
+                             r.get("purok") or "", r.get("owner_name") or ""))
+
+    return render_template(
+        "tricycle-collector/list.html",
+        page_title="Collection List",
+        rows=rows,
+        assignment=assignment,
+        barangay=property_service.barangay_name(assignment.get("barangay_id"))
+                 if assignment else None,
+        counts=collection_service.counts(properties),
+        puroks=sorted({r["purok"] for r in rows if r.get("purok")}),
         today_row=schedule_service.for_date(),
         **_shell("tricycle"),
     )
@@ -269,8 +307,13 @@ def proof(relative):
 
     Proofs are stored outside static/ precisely so that this check is the only
     way in -- anything under static/ is served to whoever guesses the URL.
+
+    Covers a resident's photo too. `proof_owner` finds whichever record
+    references the file -- a collector's entry, an entry a resident's photo was
+    filed alongside, or the report itself -- so both sides of a dispute are
+    viewable through the same permission check.
     """
-    entry = storage.find_one("collections", image_proof_path=relative)
+    entry = collection_service.proof_owner(relative)
     if not entry:
         abort(404)
     if not collection_service.may_view_proof(entry, current_user()):

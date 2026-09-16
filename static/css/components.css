@@ -42,7 +42,16 @@
 .card__title { font-size: var(--text-lg); font-weight: 650; }
 .card__body { padding: var(--sp-5); flex: 1; min-width: 0; }
 .card__body--flush { padding: 0; }
+/* Card footers hold a row count on one side and a hint on the other. As a
+   plain block those two spans ran together into one sentence ("4 records A
+   collector reads as Unavailable..."); as a flex row they read as the two
+   separate things they are, and wrap rather than collide on a phone. */
 .card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
   padding: var(--sp-3) var(--sp-5);
   border-block-start: 1px solid var(--border-subtle);
   background: var(--bg-subtle);
@@ -147,7 +156,10 @@
   justify-content: center;
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
-  min-height: 42px;
+  /* height, not min-height: an input, a select and a button have different
+     intrinsic content heights, so a shared floor still leaves them a few
+     pixels apart. Variants below retune --control-h rather than the rule. */
+  height: var(--control-h);
   border-radius: var(--r-md);
   border: 1px solid transparent;
   font-size: var(--text-md);
@@ -183,18 +195,35 @@
 .btn--danger { background: var(--red-500); color: #fff; }
 .btn--danger:hover { background: var(--red-600); color: #fff; }
 
+/* A card holding something irreversible. The red edge is the warning that
+   survives skim-reading, which the body text does not. */
+.card--danger { border-color: var(--tone-danger-bd); }
+.card--danger .card__head { border-block-end-color: var(--tone-danger-bd); }
+.card--danger .card__title { color: var(--tone-danger-fg); display: flex; align-items: center; gap: var(--sp-2); }
+
+.reset-list {
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+.reset-list .mono { display: inline-block; min-width: 3ch; font-weight: 650; }
+
 .btn--success { background: var(--green-600); color: #fff; }
 .btn--success:hover { background: var(--green-700); color: #fff; }
 
-.btn--sm { min-height: 34px; padding: var(--sp-2) var(--sp-3); font-size: var(--text-sm); }
-.btn--lg { min-height: 48px; padding: var(--sp-4) var(--sp-6); font-size: var(--text-base); }
+.btn--sm { --control-h: 34px; padding: var(--sp-2) var(--sp-3); font-size: var(--text-sm); }
+.btn--lg { --control-h: 48px; padding: var(--sp-4) var(--sp-6); font-size: var(--text-base); }
 .btn--block { width: 100%; }
 
 /* Square icon button -- 40px keeps it above the 24px WCAG target minimum. */
 .btn--icon {
   padding: 0;
+  /* Square, and sized by itself rather than by the row token. */
   width: 40px; height: 40px;
-  min-height: 0;
   border-radius: var(--r-md);
   color: var(--fg-muted);
 }
@@ -261,9 +290,13 @@
   color: var(--fg-muted);
   font-size: var(--text-xs);
   font-weight: 500;
-  white-space: nowrap;
+  /* Wraps only when it has to. nowrap here pushed a long waste line ("Bio-
+     degradable -- 12 sacks") past the right edge of a 360px screen, because
+     .tags can wrap between tags but not inside one. */
+  max-width: 100%;
+  white-space: normal;
 }
-.tags { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.tags { display: flex; flex-wrap: wrap; gap: var(--sp-2); min-width: 0; }
 
 /* Waste-type colour chips */
 .chip {
@@ -293,13 +326,105 @@
 
 .form { display: flex; flex-direction: column; gap: var(--sp-5); }
 
+/* Form and filter grids.
+
+   The column count is a per-form token, not auto-fit. Whether a layout looks
+   balanced depends on how many fields there are -- six wants 3x2, four wants
+   2x2 -- and a track count derived from available width cannot know that. On
+   the Property filters, auto-fit resolved to five columns at desktop and left
+   Status stranded alone on a second row of six.
+
+   Set --form-cols (or use a --2 / --4 modifier) to match the field count; the
+   ladder below steps it down so nothing is ever squeezed on a narrow screen. */
 .form__grid {
+  --form-cols: 3;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(var(--form-cols), minmax(0, 1fr));
   gap: var(--sp-4) var(--sp-5);
   align-items: start;
 }
-.form__grid--2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.form__grid--2 { --form-cols: 2; }
+.form__grid--4 { --form-cols: 4; }
+
+/* An odd field count leaves the last one alone beside a hole. Spanning it
+   ends the form on a full line instead. Two columns only: that is where the
+   arithmetic is unambiguous (odd position + last = no partner), and it covers
+   every grid that actually strands a field. */
+.form__grid--2 > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* Opt a field out of the column rhythm when its content genuinely needs the
+   room -- a picker listing "Full Name (username)", for instance. */
+.form__grid > .field--wide { grid-column: 1 / -1; }
+
+/* A full-width field consumes a whole row, which flips the odd/even parity the
+   rule above counts on: after one, it is a last child in an *even* position
+   that ends up alone. (Holds for a single wide field, which is all any form
+   here uses; the orphan scan is what would catch a second one.) */
+.form__grid--2 > .field--wide ~ *:last-child:nth-child(even) { grid-column: 1 / -1; }
+
+/* Four columns need real width behind them. Below this a column is narrower
+   than the longest role label ("Tricycle Garbage Collector"), so an 8-field
+   form steps to 3 (3+3+2) before the general ladder takes over. */
+@media (max-width: 1400px) { .form__grid--4 { --form-cols: 3; } }
+
+/* Below these widths a column is narrower than a usable field, so the count
+   drops regardless of what the form asked for. */
+@media (max-width: 1180px) {
+  .form__grid { --form-cols: 2; }
+  .form__grid > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@media (max-width: 720px)  { .form__grid { --form-cols: 1; } }
+
+/* Date field + its View button, side by side in a page header.
+
+   align-items:flex-end because the field carries a label above the input:
+   without it the button lines up with the label and floats above the box it
+   belongs to. Both controls are --control-h, so they match exactly. */
+.datepick {
+  display: flex;
+  align-items: flex-end;
+  /* nowrap, deliberately. .page__actions is shrink-to-fit, so a wrappable row
+     resolves to a width that puts the button on its own line under the input.
+     The phone case is handled by the breakpoint below, not by wrapping. */
+  flex-wrap: nowrap;
+  gap: var(--sp-2);
+}
+.datepick .field { flex: 1 1 auto; min-width: 0; }
+.datepick .btn { flex: 0 0 auto; }
+
+@media (max-width: 560px) {
+  /* Side by side leaves the date about 160px on a 360px phone. Stacked and
+     filling the header gives it the whole width -- width:100% because
+     .page__actions is a flex row, so the form is otherwise content-sized. */
+  .datepick { flex-direction: column; align-items: stretch; width: 100%; }
+  .datepick .btn { width: 100%; }
+}
+
+/* Filter-card actions.
+
+   These used to sit in a bare .row below the grid, which left the button
+   floating in the gap under whichever column happened to be last -- lined up
+   with nothing, and moving as the column count changed with the viewport.
+   As a full-width cell of the same grid it is anchored to the card instead of
+   to a column, so it reads the same at every width. */
+.form__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  margin-block-start: var(--sp-1);
+  padding-block-start: var(--sp-4);
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 560px) {
+  /* Full-width, primary action last: on a phone the thumb is at the bottom of
+     the screen and the buttons are the last thing in the card. */
+  .form__actions { flex-direction: column-reverse; align-items: stretch; }
+  .form__actions .btn { width: 100%; }
+}
 
 .field { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
 
@@ -318,8 +443,14 @@
 .field__select,
 .field__textarea {
   width: 100%;
-  padding: var(--sp-3) var(--sp-4);
-  min-height: 44px;               /* comfortable touch target */
+  /* No vertical padding on a fixed-height control. The height is what keeps
+     every control on a row the same size, so padding-block can only eat into
+     the space the text needs -- 12px top and bottom left a 14px content box
+     for a 21px line, which sheared the descenders off "All Barangay". The
+     text centres itself in the height instead. */
+  padding-inline: var(--sp-4);
+  padding-block: 0;
+  height: var(--control-h);       /* comfortable touch target */
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
@@ -329,7 +460,16 @@
               box-shadow var(--dur-fast) var(--ease),
               background var(--dur-fast) var(--ease);
 }
-.field__textarea { min-height: 92px; resize: vertical; line-height: var(--leading-snug); }
+/* The one control that must grow: height:auto undoes the shared row height,
+   and it needs its vertical padding back because it has no fixed height to
+   centre within. */
+.field__textarea {
+  height: auto;
+  min-height: 92px;
+  padding-block: var(--sp-3);
+  resize: vertical;
+  line-height: var(--leading-snug);
+}
 
 .field__input::placeholder, .field__textarea::placeholder { color: var(--fg-subtle); }
 
@@ -361,7 +501,10 @@
 /* Native select with a custom chevron. */
 .field__select {
   appearance: none;
+  /* Room for the chevron drawn in the background image. Without it a long
+     option runs underneath the arrow and reads as cut off. */
   padding-inline-end: var(--sp-8);
+  text-overflow: ellipsis;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7686' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right var(--sp-3) center;
@@ -481,8 +624,16 @@
 }
 .toolbar__title { font-size: var(--text-lg); font-weight: 650; margin-inline-end: auto; }
 .toolbar__search { min-width: 200px; flex: 1 1 200px; max-width: 300px; }
-.toolbar .field__select, .toolbar .field__input { min-height: 40px; font-size: var(--text-sm); }
-.toolbar .field__select { min-width: 132px; }
+/* A denser row. Setting the token rather than each control keeps buttons in
+   the toolbar the same height as the inputs beside them. */
+.toolbar { --control-h: 40px; }
+.toolbar .field__select, .toolbar .field__input { font-size: var(--text-sm); }
+/* width:auto lets the browser size the control to its widest option, which is
+   what stops "All Availability" being cut off behind the chevron. The base
+   rule sets width:100%, and in a content-sized .field that resolves to the
+   shortest thing that fits -- 132px -- not to the content. */
+.toolbar .field__select { width: auto; min-width: 132px; max-width: 100%; }
+.toolbar > .field { min-width: 0; max-width: 100%; }
 
 @media (max-width: 760px) {
   .toolbar { padding: var(--sp-3) var(--sp-4); }
@@ -499,7 +650,22 @@
 
 .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+/* table-layout: fixed is the whole point of this block.
+
+   Under the default `auto` algorithm a table's columns are measured from
+   their content, so one long owner name or barangay list re-proportions every
+   other column and the same table looks different on each page of data. Fixed
+   makes the header row the single source of column widths -- see the `w`
+   argument on the th() macro -- so no value can move them.
+
+   The trade is that content must now be told what to do when it does not fit,
+   which is what the wrapping rules below are for. */
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
 
 .table thead th {
   position: sticky;
@@ -532,8 +698,34 @@
 .table td .strong { display: block; color: var(--fg-strong); font-weight: 650; }
 .table td .sub { display: block; font-size: var(--text-xs); color: var(--fg-muted); margin-top: 2px; }
 
+/* Nothing may spill out of its column. A long value wraps; a single
+   unbroken token (a run-on name, an ID) breaks rather than pushing the
+   column, which under a fixed layout would otherwise overlap its neighbour. */
+/* break-word only, not word-break:anywhere -- a word is broken when it truly
+   cannot fit, but ordinary text still wraps at spaces. */
+.table th, .table td { overflow-wrap: break-word; }
+
 .table__num { text-align: right; }
-.table__actions { width: 1%; white-space: nowrap; text-align: right; }
+
+/* Action clusters are sized in px on the header (see the th widths), because
+   a row of icon buttons has a real size that should not scale with the
+   viewport. nowrap keeps a cluster on one line; the wrap allowance below is
+   the safety net for a table that later gains a button. */
+.table__actions { white-space: nowrap; text-align: right; }
+.table__actions .actions { flex-wrap: wrap; justify-content: flex-end; }
+
+/* A status badge is nowrap so its own text never splits, but inside a fixed
+   column a long label has to be allowed to break somewhere -- otherwise it
+   runs under the next column. */
+/* flex-wrap so the status dot and its label can stack rather than force the
+   badge wider than a narrow Status column. */
+.table td .badge { max-width: 100%; white-space: normal; flex-wrap: wrap; min-width: 0; }
+
+/* Flex items default to min-width:auto, which refuses to shrink below the
+   content's own minimum. Inside a fixed column that is what makes a name in
+   an avatar+text row run straight out of the cell instead of wrapping. */
+.table td .row,
+.table td .row > * { min-width: 0; }
 
 /* Sortable headers */
 .table th[aria-sort] { cursor: pointer; user-select: none; }
@@ -549,7 +741,10 @@
 /* ---- Mobile card transform --------------------------------------------- */
 @media (max-width: 760px) {
   .table thead { display: none; }
+  /* The card transform takes the rows out of table layout entirely, so the
+     header widths stop applying -- table-layout has nothing to act on. */
   .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
+  .table { table-layout: auto; }
 
   .table tbody tr {
     border: 1px solid var(--border);
@@ -669,6 +864,54 @@
 .pop__item:hover { background: var(--bg-hover); color: inherit; }
 .pop__item--unread { background: var(--accent-soft); }
 
+/* An alert that leads somewhere. The chevron is the only thing that says so
+   before the tap, so it is on the link and not on every row. */
+.pop__item--link { cursor: pointer; align-items: center; }
+.pop__item__go { flex: none; color: var(--fg-subtle); transition: color var(--dur-fast) var(--ease); }
+.pop__item--link:hover .pop__item__go,
+.pop__item--link:focus-visible .pop__item__go { color: var(--accent); }
+
+/* ==========================================================================
+   The notification panel on a phone
+
+   A dropdown hanging off the bell had room for about three alerts and left
+   the rest of the screen empty. Below 560px it becomes a sheet filling what
+   sits under the topbar, and the list -- not the panel -- is what scrolls.
+
+   Scoped to --sheet: the user menu next to it is two items and would look
+   absurd at full height.
+   ========================================================================== */
+
+@media (max-width: 560px) {
+  .pop__panel--sheet {
+    position: fixed;
+    inset-block-start: calc(var(--topbar-h) + var(--sp-1));
+    inset-inline: var(--sp-2);
+    width: auto;
+    display: flex;
+    flex-direction: column;
+    transform-origin: top center;
+    /* dvh tracks the browser chrome as it hides on scroll; vh is the fallback
+       for anything that does not know it. */
+    max-height: calc(100vh - var(--topbar-h) - var(--sp-4));
+    max-height: calc(100dvh - var(--topbar-h) - var(--sp-4));
+  }
+
+  .pop__panel--sheet .pop__head,
+  .pop__panel--sheet .pop__foot { flex: 0 0 auto; }
+
+  /* min-height:0 is what lets a flex child shrink far enough to scroll
+     instead of pushing the sheet past the bottom of the screen. */
+  .pop__panel--sheet .pop__list {
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  /* Comfortable thumb target now that these are tappable. */
+  .pop__panel--sheet .pop__item { min-height: 56px; align-items: center; }
+}
+
 .pop__menu-item {
   display: flex;
   align-items: center;
@@ -708,9 +951,186 @@
 .alert-item__body { font-size: var(--text-xs); color: var(--fg-muted); margin-top: 2px; }
 .alert-item__time { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; }
 
+/* ---- Alert row: one notification inside a dashboard card ----------------
+   The topbar's .pop__item is the same thing in a popover; this is the card
+   version, so the type scale matches and only the frame differs. */
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-block-end: 1px solid var(--border-subtle);
+  color: inherit;
+  text-decoration: none;
+}
+.alert-row:last-child { border-block-end: none; }
+.alert-row--unread { background: var(--accent-soft); }
+
+.alert-row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+}
+.alert-row__icon--success { background: var(--tone-success-bg); color: var(--tone-success-fg); }
+.alert-row__icon--warning { background: var(--tone-warning-bg); color: var(--tone-warning-fg); }
+.alert-row__icon--danger  { background: var(--tone-danger-bg);  color: var(--tone-danger-fg); }
+
+.alert-row__title { font-size: var(--text-sm); font-weight: 650; color: var(--fg-strong); }
+.alert-row__body  { font-size: var(--text-xs); color: var(--fg-muted); margin-top: 2px; }
+.alert-row__time  { font-size: var(--text-xs); color: var(--fg-subtle); white-space: nowrap; margin-inline-start: auto; }
+
+/* Only a row that leads somewhere reacts to the pointer. */
+.alert-row--link { cursor: pointer; transition: background var(--dur-fast) var(--ease); }
+.alert-row--link:hover { background: var(--bg-hover); color: inherit; }
+.alert-row__go { flex: none; color: var(--fg-subtle); transition: color var(--dur-fast) var(--ease); }
+.alert-row--link:hover .alert-row__go,
+.alert-row--link:focus-visible .alert-row__go { color: var(--accent); }
+
 /* ==========================================================================
    MODAL
    ========================================================================== */
+
+/* ---- Lightbox ----------------------------------------------------------
+   Full-screen viewer for a photo proof. Two sizes only, because that is the
+   question being asked of a proof photo: "show me the whole thing" and "let
+   me look closely at one part of it". A continuous zoom control would be more
+   to build and more to operate on a phone, where pinch already does it.
+
+   Deliberately dark and chrome-free: the photo is evidence, and a pale panel
+   around it changes how the picture reads.                                */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-lightbox);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  /* Both tracks must be given a definite size. An implicit auto column is
+     sized to its content, so the bar's buttons widened the whole viewer past
+     the screen on a phone and the stage inherited that width. */
+  grid-template-columns: minmax(0, 1fr);
+  /* Not a token: the surrounding surface is intentionally near-black in both
+     themes so the photo is judged against a neutral ground, not against the
+     page's own light or dark palette. */
+  background: rgba(9, 12, 16, .94);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur) var(--ease), visibility var(--dur);
+}
+.lightbox[data-open="true"] { opacity: 1; visibility: visible; }
+
+.lightbox__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-block-end: 1px solid rgba(255, 255, 255, .12);
+}
+
+.lightbox__caption {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: #f4f6f8;
+}
+
+.lightbox__actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+
+.lightbox__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: var(--control-h);
+  padding-inline: var(--sp-3);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, .08);
+  color: #f4f6f8;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--dur-fast) var(--ease);
+}
+.lightbox__btn:hover { background: rgba(255, 255, 255, .18); }
+/* A photo already fully visible at 100% has nothing to zoom to. */
+.lightbox__btn[disabled] { opacity: .4; cursor: default; }
+.lightbox__btn[disabled]:hover { background: rgba(255, 255, 255, .08); }
+.lightbox__btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.lightbox__btn--close { padding-inline: 0; width: var(--control-h); justify-content: center; }
+
+/* The labels are the first thing to go on a narrow screen -- the icons carry
+   the meaning, and the close button must never be pushed off the bar. */
+@media (max-width: 560px) {
+  .lightbox__btn-label { display: none; }
+  .lightbox__btn { padding-inline: 0; width: var(--control-h); justify-content: center; }
+}
+
+.lightbox__stage {
+  display: grid;
+  /* The row must be given a definite size. Left implicit it is sized by its
+     content, and the image's own `max-height: 100%` then resolves against the
+     image -- which is no constraint at all, so a tall photo rendered far past
+     the bottom of the screen instead of fitting inside it. */
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  min-height: 0;
+  padding: var(--sp-4);
+  overflow: auto;
+  /* Momentum scrolling when the image is larger than the stage, and no
+     scroll chaining out to the page behind. */
+  overscroll-behavior: contain;
+}
+
+.lightbox__img {
+  display: block;
+  /* Fit: the whole photo, never larger than the stage. */
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+  cursor: zoom-in;
+}
+
+/* Actual size: drop the bounds and let the stage scroll. `max-width: none`
+   is what actually releases it -- width:auto alone is still capped by the
+   rule above. */
+.lightbox[data-zoom="actual"] .lightbox__img {
+  max-width: none;
+  max-height: none;
+  width: auto;
+  height: auto;
+  cursor: zoom-out;
+}
+
+.lightbox__hint {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  text-align: center;
+  font-size: var(--text-xs);
+  color: rgba(244, 246, 248, .62);
+  border-block-start: 1px solid rgba(255, 255, 255, .12);
+}
+
+/* A proof shown inline is a button in all but name -- say so on hover, and
+   give it a visible focus ring for the keyboard. */
+[data-zoomable] { cursor: zoom-in; }
+[data-zoomable]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lightbox { transition: none; }
+}
 
 .modal {
   position: fixed;
@@ -952,9 +1372,22 @@
 
 .divider { height: 1px; background: var(--border-subtle); border: 0; margin-block: var(--sp-2); }
 
-.kv { display: flex; flex-direction: column; gap: var(--sp-1); }
+.kv { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
 .kv__key { font-size: var(--text-xs); color: var(--fg-muted); }
-.kv__val { font-size: var(--text-base); font-weight: 650; color: var(--fg-strong); }
+.kv__val { font-size: var(--text-base); font-weight: 650; color: var(--fg-strong); min-width: 0; }
+/* A second line under a value -- the GPS fix beneath a written location. */
+.kv__sub {
+  display: block;
+  margin-block-start: 2px;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
+/* A dialog is narrower than a page, so .grid--2's 320px tracks collapse it to
+   a single tall column. Smaller tracks keep the two columns the detail
+   layouts are written for. */
+.modal .grid--2 { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 
 .scroll-y { max-height: 420px; overflow-y: auto; }
 
@@ -1182,75 +1615,12 @@
 }
 .map--full .map__canvas { height: calc(100vh - 132px) !important; }
 
-/* ---- Zone polygons ----
-   Every polygon carries two classes: its zone group and its barangay id. The
-   per-barangay block below is deliberately last, so it wins on source order
-   and each barangay draws in its own colour. Delete that block (or stop
-   emitting the barangay class in map.js) and the four zone-group colours take
-   over again -- they are kept working for exactly that reason.
-
-   Fill opacity lives here rather than in map.js so all polygon colour stays in
-   one file. CSS beats Leaflet's presentation attributes, so this is the value
-   that actually applies. */
-.map-zone { stroke: #fff; stroke-opacity: .55; fill-opacity: .5; }
-.map-zone--zone-a { fill: #2f7fd0; stroke: #5aa8ea; }
-.map-zone--zone-b { fill: #2ea05a; stroke: #5fd08c; }
-.map-zone--zone-c { fill: #d59a2a; stroke: #eec468; }
-.map-zone--zone-d { fill: #6d4fc4; stroke: #a58fe8; }
-.map-zone--none   { fill: #64748b; stroke: #94a3b8; }
-
-/* Zone fill by reading scale, set from map.js as data-map-zoom on the map
-   container. At city scale the fills are the point; by street scale they are
-   a sheet of colour over the roads, so they thin out to a tint and the
-   boundary carries the barangay instead. Deliberately three steps rather than
-   a continuous fade: the polygons only need to get out of the way, and a
-   value that moves on every zoom tick reads as flicker.
-
-   These sit above the base rule and below :hover on purpose -- pointing at a
-   barangay still brings its fill back at any scale. */
-[data-map-zoom="near"]   .map-zone { fill-opacity: .3; stroke-opacity: .75; }
-[data-map-zoom="street"] .map-zone { fill-opacity: .12; stroke-opacity: .95; stroke-width: 2.5; }
-
-/* Hover lifts the area out of the pack -- with 31 colours on screen, this is
-   what makes an individual barangay readable while you point at it. */
-.map-zone:hover { fill-opacity: .78; stroke-opacity: .95; }
-
-/* One colour per barangay, generated by tools/make_zone_palette.py.
-   Hues step by the golden angle (137.5 deg) rather than evenly, so
-   consecutively numbered barangays -- which are usually neighbours on the map
-   -- never land on similar colours. Lightness cycles over three values and
-   saturation over two, separating them further. */
-.map-zone--brgy-01 { fill: #d4532b; stroke: #ed9378; }  /* Antonio Luna */
-.map-zone--brgy-02 { fill: #4be79d; stroke: #97f7c9; }  /* Bay-ang */
-.map-zone--brgy-03 { fill: #9824b2; stroke: #cd54e8; }  /* Bayabas */
-.map-zone--brgy-04 { fill: #cbe01f; stroke: #e6f471; }  /* Caasinan */
-.map-zone--brgy-05 { fill: #56a6dc; stroke: #9ccff2; }  /* Cabinet */
-.map-zone--brgy-06 { fill: #bc1a4c; stroke: #f14b7e; }  /* Calamba */
-.map-zone--brgy-07 { fill: #2ed42b; stroke: #7aed78; }  /* Calibunan */
-.map-zone--brgy-08 { fill: #764be7; stroke: #b197f7; }  /* Comagascas */
-.map-zone--brgy-09 { fill: #b27524; stroke: #e8a854; }  /* Concepcion */
-.map-zone--brgy-10 { fill: #1fe0c5; stroke: #71f4e2; }  /* Del Pilar */
-.map-zone--brgy-11 { fill: #dc56c8; stroke: #f29ce5; }  /* Katugasan */
-.map-zone--brgy-12 { fill: #74bc1a; stroke: #a8f14b; }  /* Kauswagan */
-.map-zone--brgy-13 { fill: #2b58d4; stroke: #7897ed; }  /* La Union */
-.map-zone--brgy-14 { fill: #e7504b; stroke: #f79997; }  /* Mabini */
-.map-zone--brgy-15 { fill: #24b251; stroke: #54e883; }  /* Mahaba */
-.map-zone--brgy-16 { fill: #951fe0; stroke: #c171f4; }  /* Poblacion 1 */
-.map-zone--brgy-17 { fill: #dccf56; stroke: #f2e99c; }  /* Poblacion 2 */
-.map-zone--brgy-18 { fill: #1a9dbc; stroke: #4bd1f1; }  /* Poblacion 3 */
-.map-zone--brgy-19 { fill: #d42b82; stroke: #ed78b4; }  /* Poblacion 4 */
-.map-zone--brgy-20 { fill: #6ee74b; stroke: #acf797; }  /* Poblacion 5 */
-.map-zone--brgy-21 { fill: #2e24b2; stroke: #5f54e8; }  /* Poblacion 6 */
-.map-zone--brgy-22 { fill: #e0651f; stroke: #f4a071; }  /* Poblacion 7 */
-.map-zone--brgy-23 { fill: #56dcae; stroke: #9cf2d4; }  /* Poblacion 8 */
-.map-zone--brgy-24 { fill: #b31abc; stroke: #e84bf1; }  /* Poblacion 9 */
-.map-zone--brgy-25 { fill: #acd42b; stroke: #d1ed78; }  /* Poblacion 10 */
-.map-zone--brgy-26 { fill: #4b95e7; stroke: #97c4f7; }  /* Poblacion 11 */
-.map-zone--brgy-27 { fill: #b2243e; stroke: #e8546f; }  /* Poblacion 12 */
-.map-zone--brgy-28 { fill: #1fe034; stroke: #71f47f; }  /* Puting Bato */
-.map-zone--brgy-29 { fill: #8c56dc; stroke: #bf9cf2; }  /* Sanghan */
-.map-zone--brgy-30 { fill: #bc8b1a; stroke: #f1bf4b; }  /* Soriano */
-.map-zone--brgy-31 { fill: #2bd4d2; stroke: #78edeb; }  /* Tolosa */
+/* ---- Barangay boundaries ----
+   There are none. Barangays were drawn first as coloured fills and then as
+   outlines; both buried the basemap the map is actually navigated by, and
+   neither told a viewer anything the vehicle pins and the MRF dots do not.
+   map.js still loads the geometry, but only to frame the view on it -- no
+   polygon reaches the map, so there is nothing here to style. */
 
 /* ---- Hotspots ---- */
 .map-hotspot        { fill-opacity: .35; stroke-opacity: .9; }
@@ -1258,83 +1628,86 @@
 .map-hotspot--medium { fill: #f97316; stroke: #ea580c; }
 .map-hotspot--high   { fill: #dc2626; stroke: #b91c1c; }
 
-/* ---- MRF markers ----
-   Deliberately not built like the vehicle pins. 31 facilities inside a 17 km
-   city sit within a couple of hundred pixels of each other at city zoom, and
-   labelled pills turned into one unreadable clot. So: a small dot always, its
-   name only once map.js sees a zoom level with room for it. */
-.map-mrf {
-  width: 14px !important;
-  height: 14px !important;
-  margin: 0 !important;
-  position: relative;
-}
-.map-mrf__dot {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: #0f172a;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
-  transition: transform var(--dur-fast) var(--ease);
-}
-.map-mrf:hover .map-mrf__dot { transform: scale(1.35); }
+/* ---- Vehicle pins ----
+   A glyph for what is driving, then the plate. The shape is read at a glance
+   and from further away than the text is, which is what tells a tricycle from
+   a truck on a map carrying both. The glyphs are the same two the rest of the
+   UI uses (partials/icons.html), so a pin and a table row agree.
 
-.map-mrf__name {
-  position: absolute;
-  left: 50%;
-  top: 16px;
-  transform: translateX(-50%);
-  padding: 1px 6px;
-  border-radius: var(--r-xs);
-  background: rgba(255, 255, 255, .94);
-  color: #0f172a;
-  font-size: 10px;
-  font-weight: 700;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease);
-}
-.map-mrf--labelled .map-mrf__name { opacity: 1; }
-
-/* The barangay a page is pinned to gets a larger, brand-coloured dot so its
-   own facility is findable among its neighbours'. */
-.map-mrf--focus .map-mrf__dot {
-  background: var(--blue-600);
-  transform: scale(1.45);
-  box-shadow: 0 0 0 4px rgba(14, 107, 168, .28), 0 1px 4px rgba(0, 0, 0, .45);
-}
-.map-mrf--focus .map-mrf__name { opacity: 1; }
-
-/* Faded neighbours on a barangay-scoped map: still visible for orientation,
-   never competing with the zone that matters. */
-.map-zone--faded { fill-opacity: .12 !important; stroke-opacity: .3 !important; }
-
-/* ---- Vehicle pins ---- */
+   The pill is the positioned element -- it carries the translate that centres
+   it on the vehicle's coordinate, which is why .map-pin itself is left
+   unstyled apart from clearing Leaflet's own box. */
 .map-pin {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: auto !important;
   height: auto !important;
   margin: 0 !important;
 }
-.map-pin__label {
-  display: inline-block;
-  padding: 3px 8px;
+.map-pin__body {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 6px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
   white-space: nowrap;
   color: #fff;
   border: 2px solid #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
   transform: translate(-50%, -50%);
 }
-.map-pin--tricycle .map-pin__label { background: #16a34a; }
-.map-pin--truck    .map-pin__label { background: #ea580c; }
-.map-pin--mrf      .map-pin__label { background: #0f172a; }
+.map-pin__glyph {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.map-pin__label {
+  font-size: 11px;
+  font-weight: 700;
+}
+/* The fallback colour, for a vehicle with no code to key a colour off. */
+.map-pin--tricycle .map-pin__body { background: #16a34a; }
+.map-pin--truck    .map-pin__body { background: #ea580c; }
+
+/* One colour per vehicle.
+
+   Two tricycles working the same puroks used to be two identical green pills,
+   and a resident watching for theirs had to read 11px of plate text to tell
+   which was which. So the glyph says *what* it is and the colour says *which*
+   one -- the kind is carried by the shape, which is legible further away than
+   either the text or a hue.
+
+   map.js picks the class from a hash of the vehicle code, so TRI-04 is the
+   same colour on every device, on every visit, for every viewer -- a colour
+   that shuffled between page loads would be worse than no colour at all.
+
+   Hues step by the golden angle (137.5 deg) rather than evenly, so codes that
+   hash to neighbouring slots do not land on neighbouring colours, and every
+   one is dark enough to carry white text at 4.6:1 or better. Sixteen of them:
+   with 31 tricycles a colour can repeat, but never among the handful visible
+   in one part of the city at one time, and the plate is still on the pin.
+
+   These come after the per-kind rules above on purpose -- same specificity,
+   so source order is what lets a vehicle's own colour win. */
+.map-pin--v00 .map-pin__body { background: #951818; }
+.map-pin--v01 .map-pin__body { background: #21833d; }
+.map-pin--v02 .map-pin__body { background: #53157f; }
+.map-pin--v03 .map-pin__body { background: #7e7320; }
+.map-pin--v04 .map-pin__body { background: #188095; }
+.map-pin--v05 .map-pin__body { background: #761e4e; }
+.map-pin--v06 .map-pin__body { background: #318415; }
+.map-pin--v07 .map-pin__body { background: #2d289f; }
+.map-pin--v08 .map-pin__body { background: #7f3815; }
+.map-pin--v09 .map-pin__body { background: #21835e; }
+.map-pin--v10 .map-pin__body { background: #9f1cab; }
+.map-pin--v11 .map-pin__body { background: #64761e; }
+.map-pin--v12 .map-pin__body { background: #185795; }
+.map-pin--v13 .map-pin__body { background: #9f2840; }
+.map-pin--v14 .map-pin__body { background: #157f1e; }
+.map-pin--v15 .map-pin__body { background: #4a238b; }
 
 /* "You are here" on the public map. A filled dot for the position and a soft
    halo for the reported accuracy, so a coarse fix reads as coarse instead of
@@ -1356,30 +1729,21 @@
 }
 .map__legend-item { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .map__legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-.map__legend-dot--tricycle { background: #16a34a; }
-.map__legend-dot--truck    { background: #ea580c; }
-/* Not one colour any more -- each barangay draws in its own, so the swatch is
-   a spectrum rather than a single blue that would name no barangay in
-   particular. */
-.map__legend-dot--zone {
-  background: conic-gradient(#d4532b, #cbe01f, #2ed42b, #1fe0c5,
-                             #2b58d4, #951fe0, #d42b82, #d4532b);
+/* The legend shows the mark the map actually makes. Vehicles are no longer
+   one colour per kind -- each has its own -- so the swatch is the glyph. */
+.map__legend-glyph {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.map__legend-dot--zone-a { background: #2f7fd0; }
-.map__legend-dot--zone-b { background: #2ea05a; }
-.map__legend-dot--zone-c { background: #d59a2a; }
-.map__legend-dot--zone-d { background: #6d4fc4; }
-.map__legend-zones {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-3);
-  align-items: center;
-  padding: var(--sp-2) var(--sp-4);
-  background: rgba(255, 255, 255, .88);
-  border-top: 1px solid var(--border-subtle);
-  color: var(--n-700, #374151);
-}
-.map__legend-zones:empty { display: none; }
+/* Barangays are not drawn on the map, so this swatch stands for the count
+   beside it rather than echoing a mark: a plain neutral dot. */
+.map__legend-dot--zone { background: #64748b; }
 
 .map__legend-pulse {
   width: 8px; height: 8px; border-radius: 50%;

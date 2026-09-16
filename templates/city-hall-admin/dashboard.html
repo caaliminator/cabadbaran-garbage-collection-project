@@ -88,13 +88,13 @@
           <caption class="sr-only">Today's collection activity across the city</caption>
           <thead>
             <tr>
-              {{ th('Time') }}
-              {{ th('Barangay', 'barangay') }}
-              {{ th('Collector', 'collector') }}
-              {{ th('Type', 'type') }}
-              {{ th('Status', 'status') }}
-              {{ th('Reason') }}
-              <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+              {{ th('Time', w='11%') }}
+              {{ th('Barangay', 'barangay', w='16%') }}
+              {{ th('Collector', 'collector', w='19%') }}
+              {{ th('Type', 'type', w='12%') }}
+              {{ th('Status', 'status', w='14%') }}
+              {{ th('Reason', w='21%') }}
+              <th scope="col" style="width:80px" class="table__actions"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -119,12 +119,12 @@
                           data-set-status="{{ a.status }}"
                           data-set-collector="{{ a.collector }}"
                           data-set-vehicle="{{ a.vehicle }}"
+                          data-set-date="{{ a.date }}"
                           data-set-time="{{ a.time }}"
                           data-set-reason="{{ a.reason }}"
                           data-set-note="{{ a.note or 'No note recorded.' }}"
                           data-set-load="{% for l in a.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
-                          data-set-location="{{ a.location or 'Not recorded' }}"
-                          data-set-coords="{% if a.gps %}{{ a.gps.lat }}, {{ a.gps.lng }}{% endif %}"
+                          data-set-coords="{% if a.gps %}{{ a.gps.lat }}, {{ a.gps.lng }}{% else %}Not captured{% endif %}"
                           data-set-proof="{{ url_for('collector.proof', relative=a.proof) if a.proof else '' }}"
                           aria-label="View activity for {{ a.owner_name }}">
                     {{ icon('eye', 'icon--sm') }}

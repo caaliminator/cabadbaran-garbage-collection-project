@@ -67,13 +67,12 @@
         <input class="field__input" id="note" name="note" maxlength="300"
                placeholder="Access notes, landmarks…">
       </div>
-    </div>
-
-    <div class="row row--end">
-      <button type="reset" class="btn btn--ghost">Clear</button>
-      <button type="submit" class="btn btn--primary">
-        {{ icon('plus', 'icon--sm') }} Add Property
-      </button>
+      <div class="form__actions">
+        <button type="reset" class="btn btn--ghost">Clear</button>
+        <button type="submit" class="btn btn--primary">
+          {{ icon('plus', 'icon--sm') }} Add Property
+        </button>
+      </div>
     </div>
   </form>
 </section>
@@ -97,13 +96,13 @@
       <caption class="sr-only">Registered properties in this barangay</caption>
       <thead>
         <tr>
-          {{ th('Name', 'name') }}
-          {{ th('Property', 'type') }}
-          {{ th('Purok', 'purok') }}
-          {{ th('Tag') }}
-          {{ th('Status Today', 'status') }}
-          {{ th('Date Added') }}
-          <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+          {{ th('Name', 'name', w='21%') }}
+          {{ th('Property', 'type', w='13%') }}
+          {{ th('Purok', 'purok', w='12%') }}
+          {{ th('Tag', w='16%') }}
+          {{ th('Status Today', 'status', w='14%') }}
+          {{ th('Date Added', w='14%') }}
+          <th scope="col" style="width:112px" class="table__actions"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>

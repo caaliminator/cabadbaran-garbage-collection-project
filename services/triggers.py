@@ -78,7 +78,7 @@ def check_truck_approaching(user: dict, lat: float, lng: float) -> list[dict]:
 def _active_truck_assignment(operator_id: str) -> dict | None:
     for row in storage.find(assignment_service.TRUCK_COLLECTION,
                             operator_id=operator_id):
-        if row.get("status") in assignment_service.ACTIVE_STATUSES:
+        if assignment_service.is_active(row):
             return row
     return None
 
@@ -102,7 +102,7 @@ def check_arrival_reminders(now=None) -> list[dict]:
     sent = []
 
     for assignment in storage.read(assignment_service.TRUCK_COLLECTION):
-        if assignment.get("status") not in assignment_service.ACTIVE_STATUSES:
+        if not assignment_service.is_active(assignment):
             continue
 
         truck = assignment.get("truck_code") or "the truck"
@@ -155,7 +155,35 @@ def on_unavailable_request(request_row: dict, user: dict) -> None:
         f"{user.get('name')} ({user.get('vehicle') or 'no vehicle'}) is "
         f"unavailable on {when}: {request_row.get('reason')}.",
         title="Unavailable for duty", actor=user.get("id"),
-        request_id=request_row.get("id"), user_id=user.get("id"))
+        request_id=request_row.get("id"), user_id=user.get("id"),
+        # Which of the two assignment pages the admin covers this from.
+        collector_role=user.get("role"))
+
+
+def on_unavailable_decided(request_row: dict) -> None:
+    """
+    Tell the collector what the admin decided. They planned around this answer,
+    so silence is the one outcome that is not acceptable.
+    """
+    user_id = (request_row or {}).get("user_id")
+    if not user_id:
+        return
+
+    when = timeutil.display_date(request_row.get("affected_date"))
+    approved = request_row.get("status") == "Approved"
+    note = (request_row.get("decision_note") or "").strip()
+
+    message = (f"Your unavailability request for {when} was "
+               f"{'approved' if approved else 'rejected'}.")
+    if not approved:
+        message += " You are still expected on your route."
+    if note:
+        message += f" Note: {note}"
+
+    realtime.notify(realtime.user_room(user_id), N.UNAVAILABLE_REQUEST, message,
+                    title=f"Request {'approved' if approved else 'rejected'}",
+                    request_id=request_row.get("id"),
+                    collector_role=request_row.get("role"))
 
 
 def on_assignment_changed(assignment: dict, collector_id: str,
@@ -218,10 +246,27 @@ def on_carry_over_reassigned(carry_over: dict, truck_code: str) -> None:
         carry_over_id=carry_over.get("id"))
 
 
+def on_carry_over_rescheduled(carry_over: dict) -> None:
+    """The operator holding this stop is told which day it moved to."""
+    if not carry_over:
+        return
+    operator = _operator_for_truck(carry_over.get("current_truck"))
+    if not operator:
+        return      # nothing arranged yet -- nobody to tell
+    barangay = storage.find_one("barangays", id=carry_over.get("barangay_id")) or {}
+    when = timeutil.display_date(carry_over.get("reschedule_date"))
+    realtime.notify(
+        realtime.user_room(operator["id"]), N.ASSIGNMENT_CHANGED,
+        f"The carry-over pickup at {barangay.get('name', 'a barangay')} MRF is "
+        f"now set for {when}.",
+        title="Carry-over rescheduled",
+        carry_over_id=carry_over.get("id"))
+
+
 def _operator_for_truck(truck_code: str) -> dict | None:
     for row in storage.read(assignment_service.TRUCK_COLLECTION):
         if (row.get("truck_code") == truck_code
-                and row.get("status") in assignment_service.ACTIVE_STATUSES):
+                and assignment_service.is_active(row)):
             return storage.get("users", row.get("operator_id"))
     return None
 

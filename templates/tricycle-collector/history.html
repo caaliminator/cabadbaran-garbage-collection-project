@@ -57,7 +57,9 @@
           {% elif r.reason %}
             <p class="entry__sub"><span class="badge badge--danger">{{ r.reason }}</span></p>
             {% if r.image_proof_path %}
-              <a class="card__link" href="{{ url_for('collector.proof', relative=r.image_proof_path) }}">
+              <a class="card__link" data-zoomable
+                 data-zoom-caption="{{ r.owner_name }} — image proof"
+                 href="{{ url_for('collector.proof', relative=r.image_proof_path) }}">
                 {{ icon('eye', 'icon--sm') }} View image proof
               </a>
             {% endif %}

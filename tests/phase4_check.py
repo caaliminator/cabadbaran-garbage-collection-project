@@ -175,8 +175,13 @@ missed = mrf_service.save_pickup(Form({"status": "Not Collected",
                                        "note": "Bridge under repair"}), B1, OP)
 co = carryover_service.outstanding_for(B1)
 ok("a missed pickup opens a carry-over", co is not None)
-ok("carry-over starts Pending with no truck assigned",
-   co["status"] == "Pending" and co["current_truck"] is None)
+ok("carry-over starts as a Missed Collection with no truck assigned",
+   co["status"] == carryover_service.MISSED and co["current_truck"] is None)
+ok("and it is the Missed Collection view that lists it",
+   [r["id"] for r in carryover_service.listing(carryover_service.MISSED)] == [co["id"]]
+   and carryover_service.listing(carryover_service.PENDING) == [])
+ok("the row says what it is waiting for",
+   carryover_service.listing(carryover_service.MISSED)[0]["needs_truck"])
 ok("carry-over remembers the original truck", co["original_truck"] == "TRK-01")
 ok("missed pickup adds nothing to the running load",
    mrf_service.running_load(OP["id"])["empty"])
@@ -195,6 +200,10 @@ fails("reassigning to an unregistered truck is refused",
       lambda: carryover_service.reassign(co["id"], "TRK-99", ADMIN), "truck")
 carryover_service.reassign(co["id"], "TRK-02", ADMIN)
 ok("carry-over reassigned", storage.get("carry_overs", co["id"])["current_truck"] == "TRK-02")
+ok("a truck with no date is still a Missed Collection",
+   storage.get("carry_overs", co["id"])["status"] == carryover_service.MISSED)
+ok("and the row now says it is the date that is missing",
+   carryover_service.listing(carryover_service.MISSED)[0]["needs_date"])
 ok("the new truck now sees it as a stop",
    any(c["barangay_id"] == B1 for c in mrf_service.cards_for_operator(OP2["id"])))
 ok("the stop is flagged as a carry-over",
@@ -208,6 +217,14 @@ tomorrow = timeutil.date_str(timeutil.today() + timedelta(days=1))
 carryover_service.reschedule(co["id"], tomorrow, ADMIN)
 ok("carry-over rescheduled",
    storage.get("carry_overs", co["id"])["reschedule_date"] == tomorrow)
+ok("a truck and a date together make it Pending",
+   storage.get("carry_overs", co["id"])["status"] == carryover_service.PENDING)
+ok("the Pending view lists it, the Missed view no longer does",
+   [r["id"] for r in carryover_service.listing(carryover_service.PENDING)] == [co["id"]]
+   and carryover_service.listing(carryover_service.MISSED) == [])
+_c = carryover_service.counts()
+ok("the counts split the two open stages",
+   _c["missed"] == 0 and _c["pending"] == 1 and _c["open"] == 1)
 ok("a future-dated carry-over drops off today's route",
    not any(c["barangay_id"] == B1 and c.get("is_carry_over")
            for c in mrf_service.cards_for_operator(OP2["id"])))
@@ -223,6 +240,116 @@ ok("no carry-over is left outstanding", carryover_service.outstanding_for(B1) is
 fails("a closed carry-over cannot be reassigned",
       lambda: carryover_service.reassign(co["id"], "TRK-02", ADMIN), "form",
       "already been collected")
+
+print("\n[6b] View Details carries what each stage is asked for")
+# The dialogs are driven entirely by carryover_service.detail(), so the fields
+# are checked here rather than by reading rendered HTML.
+_closed_detail = carryover_service.detail(closed)
+ok("a collected carry-over reports the pickup that took it",
+   _closed_detail["stage"] == carryover_service.COLLECTED
+   and _closed_detail["date_display"] == timeutil.display_date(TODAY)
+   and _closed_detail["time_display"] != "—")
+ok("it names both trucks, each with its operator",
+   " — " in _closed_detail["original_truck"]
+   and " — " in _closed_detail["current_truck"])
+ok("its load is the load that was actually carried",
+   _closed_detail["load"]["sacks"] > 0)
+ok("it lists the misses that came before it, in order",
+   [m["label"] for m in _closed_detail["misses"]] == ["1st miss", "2nd miss"])
+ok("and it carries a location and a note field for the dialog",
+   "location" in _closed_detail and "note" in _closed_detail)
+
+# The same pickup, seen from the MRF page: the spec asks for the two views to
+# agree, which they do by both reading mrf_service.pickup_view.
+_mrf_row = next(r for r in mrf_service.city_listing(TODAY, barangay_id=B1))
+ok("the MRF page flags the pickup that collected a carry-over",
+   _mrf_row["carry_over"] is not None)
+ok("and shows the same two trucks the Carry-Over page does",
+   _mrf_row["carry_over"]["original_truck"] == _closed_detail["original_truck"]
+   and _mrf_row["carry_over"]["current_truck"] == _closed_detail["current_truck"])
+ok("an MRF pickup with no carry-over is not flagged",
+   mrf_service.city_listing(TODAY, barangay_id=B2)[0]["carry_over"] is None)
+
+# A fresh miss, to check the two open stages report their own shape.
+storage.write("carry_overs", [])
+storage.write("mrf_pickups", [])
+_p = household("Household Z")
+collect(_p, 4, 0)
+_missed = mrf_service.save_pickup(Form({"status": "Not Collected",
+                                        "reason": "Truck breakdown",
+                                        "note": "Gearbox failed"}), B1, OP)
+_co = carryover_service.outstanding_for(B1)
+_missed_detail = carryover_service.detail(_co)
+ok("a missed carry-over reports the attempt that failed",
+   _missed_detail["stage"] == carryover_service.MISSED
+   and _missed_detail["reason"] == "Truck breakdown"
+   and _missed_detail["note"] == "Gearbox failed")
+ok("it names the operator who tried",
+   _missed_detail["operator"] == storage.get("users", OP["id"])["full_name"])
+ok("and its load reads zero -- the waste is still in the MRF",
+   _missed_detail["load"]["total"] == "0")
+
+carryover_service.reassign(_co["id"], "TRK-02", ADMIN)
+carryover_service.reschedule(_co["id"], TODAY, ADMIN)
+_pending_detail = carryover_service.detail(storage.get("carry_overs", _co["id"]))
+ok("a pending carry-over reports the date it was moved to",
+   _pending_detail["stage"] == carryover_service.PENDING
+   and _pending_detail["reschedule_display"] == timeutil.display_date(TODAY))
+ok("it distinguishes the original truck from the current one",
+   _pending_detail["original_truck"] != _pending_detail["current_truck"]
+   and _pending_detail["current_truck"].startswith("TRK-02"))
+ok("its load is still zero", _pending_detail["load"]["total"] == "0")
+ok("and it says which miss this is",
+   _pending_detail["misses_display"].startswith("1st miss — "))
+
+# What a half-arranged carry-over is still waiting for, said in one place and
+# read by the table, the dialog and the page notice alike.
+_fresh = dict(_co, current_truck=None, reschedule_date=None)
+ok("with neither set, it asks for both",
+   carryover_service.missing_from(_fresh)
+   == "Needs a truck and a collection date")
+ok("with a truck only, it asks for a date",
+   carryover_service.missing_from(dict(_fresh, current_truck="TRK-02"))
+   == "Needs a collection date")
+ok("with a date only, it asks for a truck",
+   carryover_service.missing_from(dict(_fresh, reschedule_date=TODAY))
+   == "Needs a truck")
+ok("with both, it asks for nothing",
+   carryover_service.missing_from(
+       dict(_fresh, current_truck="TRK-02", reschedule_date=TODAY)) == "")
+ok("and a collected carry-over is never waiting for anything",
+   carryover_service.missing_from(dict(_fresh, status="Collected")) == "")
+ok("the dialog carries the same note the row does",
+   _pending_detail["missing"] == "")
+
+print("\n[6c] a second truck may rescue a miss, but not rewrite a collection")
+storage.write("carry_overs", [])
+storage.write("mrf_pickups", [])
+_h = household("Household T")
+collect(_h, 9, 0)
+mrf_service.save_pickup(Form({"status": "Not Collected",
+                              "reason": "Truck breakdown"}), B1, OP)
+fails("a second truck cannot record another miss over the first",
+      lambda: mrf_service.save_pickup(
+          Form({"status": "Not Collected", "reason": "Road inaccessible"}), B1, OP2),
+      "form", "already recorded")
+_rescue = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP2)
+ok("but it may collect what the first truck left behind",
+   _rescue["status"] == "Collected from MRF" and _rescue["load"]["sacks"] >= 9)
+ok("the load moves onto the truck that actually took it",
+   mrf_service.running_load(OP2["id"])["sacks"] == _rescue["load"]["sacks"]
+   and mrf_service.running_load(OP["id"])["empty"])
+ok("and that closes the carry-over the miss opened",
+   carryover_service.outstanding_for(B1) is None)
+_detail = carryover_service.detail(
+    storage.find_one("carry_overs", barangay_id=B1))
+ok("the truck that missed it is still named as the original",
+   _detail["original_truck"].startswith("TRK-01")
+   and _detail["current_truck"].startswith("TRK-02"))
+fails("a third truck cannot rewrite the completed collection",
+      lambda: mrf_service.save_pickup(
+          Form({"status": "Collected from MRF"}), B1, OP), "form",
+      "already recorded")
 
 print("\n[7] auto-miss closes off a forgotten day")
 storage.write("carry_overs", [])

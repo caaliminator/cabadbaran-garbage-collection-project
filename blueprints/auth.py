@@ -24,7 +24,7 @@ from flask import (Blueprint, abort, current_app, flash, g, redirect,
                    render_template, request, session, url_for)
 from markupsafe import Markup
 
-from services import auth_service, timeutil
+from services import auth_service, notification_service, timeutil
 from services.auth_service import ROLES, AuthError
 
 auth_bp = Blueprint("auth", __name__)
@@ -282,6 +282,39 @@ def _safe_next() -> str | None:
     if not target.startswith("/") or target.startswith("//") or "\\" in target:
         return None
     return target
+
+
+@auth_bp.route("/notifications/<notification_id>/open")
+def open_notification(notification_id: str):
+    """
+    Tapping an alert in the bell: mark it read, then land on the page that
+    answers it -- a new carry-over opens the Carry-Over worklist, a resident
+    report opens Reports.
+
+    A GET that changes state is deliberate here. Read state is per-viewer
+    display state rather than a change to the record, and a form would cost
+    the one-tap arrival the whole thing exists for; the CSRF guard only covers
+    unsafe methods for the same reason.
+
+    Both halves are derived from the session, never from the request: the
+    service refuses an alert this viewer was not addressed to, and the
+    destination comes from their own role. A crafted link cannot mark someone
+    else's alert read, and cannot send anyone to a page their role is barred
+    from.
+    """
+    user = current_user()
+    if not user:
+        flash("Please sign in to continue.", "warning")
+        return redirect(url_for("auth.login", next=request.path))
+
+    target = notification_service.open_for(notification_id, user)
+    if target:
+        endpoint, kwargs = target
+        return redirect(url_for(endpoint, **kwargs))
+
+    # Informational, already gone, or not theirs. Their own portal is the
+    # honest place to land -- there is nothing to show and nothing to explain.
+    return redirect(url_for(auth_service.home_endpoint(user["role"])))
 
 
 @auth_bp.route("/logout", methods=["GET", "POST"])

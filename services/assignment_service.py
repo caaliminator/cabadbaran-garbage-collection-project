@@ -47,23 +47,47 @@ def assigned_collector_ids(role: str) -> set[str]:
                          if role == "tricycle_collector"
                          else (TRUCK_COLLECTION, "operator_id"))
     return {row[field] for row in storage.read(collection)
-            if row.get("status") in ACTIVE_STATUSES and row.get(field)}
+            if is_active(row) and row.get(field)}
 
 
 def is_unavailable(user_id: str, on_date=None) -> bool:
     """
-    Does an approved unavailability request cover this date? Drives the
-    Availability column and the "Unavailable Requests" counter.
+    Is this collector off the route on this date? Drives the Availability
+    column and the "Unavailable Requests" counter.
+
+    Pending and Approved both count; Rejected does not. A request the admin
+    turned down must put the collector back on the route, which is the point
+    of being able to reject one.
     """
+    from services import unavailable_service
+
     day = timeutil.date_str(on_date or timeutil.today())
     for req in storage.find("unavailable_requests", user_id=user_id):
-        if req.get("status") == "Resolved":
+        if req.get("status") not in unavailable_service.BLOCKING:
             continue
         start = req.get("affected_date")
         end = req.get("unavailable_until") or start
         if start and start <= day <= (end or start):
             return True
     return False
+
+
+def is_active(row: dict, on_date=None) -> bool:
+    """
+    Is this assignment in force?
+
+    Status alone is not enough once a Temporary Replacement carries an end
+    date: a replacement whose last day has passed is history, and treating it
+    as active would keep the stand-in on the route and the original collector
+    off it indefinitely. Everything that asks "who works this barangay" goes
+    through here so they all answer the same way.
+    """
+    if row.get("status") not in ACTIVE_STATUSES:
+        return False
+    until = row.get("until_date")
+    if until and until < timeutil.date_str(on_date or timeutil.today()):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +125,12 @@ def tricycle_listing(search: str = "", barangay: str = "", status: str = "",
             "effective_date": row.get("effective_date") or "",
             "effective_display": (timeutil.display_date(row["effective_date"])
                                   if row.get("effective_date") else "Not set"),
+            "until_date": row.get("until_date") or "",
+            "until_display": (timeutil.display_date(row["until_date"])
+                              if row.get("until_date") else "No end date"),
+            "expired": bool(row.get("until_date")
+                            and row["until_date"] < timeutil.today_str()
+                            and row.get("status") in ACTIVE_STATUSES),
             "pending_start": bool(row.get("effective_date")
                                   and row["effective_date"] > timeutil.today_str()),
             "availability": available,
@@ -117,8 +147,7 @@ def tricycle_counts() -> dict:
     """The four KPI cards on the Tricycle page."""
     collectors = [u for u in storage.read("users")
                   if u.get("role") == "tricycle_collector" and u.get("status") == "Active"]
-    active = [r for r in storage.read(TRICYCLE_COLLECTION)
-              if r.get("status") in ACTIVE_STATUSES]
+    active = [r for r in storage.read(TRICYCLE_COLLECTION) if is_active(r)]
     covered = {r.get("barangay_id") for r in active if r.get("barangay_id")}
     unavailable = sum(1 for c in collectors if is_unavailable(c["id"]))
 
@@ -153,6 +182,7 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
     # this barangay" is only answerable with a date attached -- a replacement
     # that starts on Monday is not the same fact as one starting today.
     effective_date = v.date("effective_date", "Date of Effectivity", required=True)
+    until_date = _read_until_date(v, status, effective_date)
     v.text("note", "Note", max_length=500)
 
     collector = users.get(collector_id) or {}
@@ -183,7 +213,7 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
     # overlap -- there is no narrower unit left to compare.
     if status in ACTIVE_STATUSES:
         for other in storage.read(TRICYCLE_COLLECTION):
-            if other.get("id") == assignment_id or other.get("status") not in ACTIVE_STATUSES:
+            if other.get("id") == assignment_id or not is_active(other):
                 continue
             if other.get("barangay_id") != barangay_id:
                 continue
@@ -198,6 +228,7 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
         "barangay_id": barangay_id,
         "tricycle_code": tricycle,
         "effective_date": effective_date,
+        "until_date": until_date,
         "status": status,
         "note": v.data["note"],
     }
@@ -250,6 +281,12 @@ def truck_listing(search: str = "", status: str = "",
             "effective_date": row.get("effective_date") or "",
             "effective_display": (timeutil.display_date(row["effective_date"])
                                   if row.get("effective_date") else "Not set"),
+            "until_date": row.get("until_date") or "",
+            "until_display": (timeutil.display_date(row["until_date"])
+                              if row.get("until_date") else "No end date"),
+            "expired": bool(row.get("until_date")
+                            and row["until_date"] < timeutil.today_str()
+                            and row.get("status") in ACTIVE_STATUSES),
             "pending_start": bool(row.get("effective_date")
                                   and row["effective_date"] > timeutil.today_str()),
             "planned_pickup_times": row.get("planned_pickup_times") or {},
@@ -275,8 +312,7 @@ def truck_counts() -> dict:
 
     operators = [u for u in storage.read("users")
                  if u.get("role") == "truck_collector" and u.get("status") == "Active"]
-    active = [r for r in storage.read(TRUCK_COLLECTION)
-              if r.get("status") in ACTIVE_STATUSES]
+    active = [r for r in storage.read(TRUCK_COLLECTION) if is_active(r)]
     covered = {b for r in active for b in (r.get("covered_mrfs") or [])}
     all_barangays = {b["id"] for b in storage.read("barangays")}
     unavailable = sum(1 for o in operators if is_unavailable(o["id"]))
@@ -316,6 +352,7 @@ def save_truck_assignment(form, assignment_id: str | None = None,
     covered = v.multi("covered_mrfs", "Barangay MRF", list(barangays))
     status = v.choice("status", "Status", STATUS_CHOICES)
     effective_date = v.date("effective_date", "Date of Effectivity", required=True)
+    until_date = _read_until_date(v, status, effective_date)
     v.text("note", "Note", max_length=500)
 
     # Optional planned pickup time per covered MRF, for the T-2h reminders.
@@ -354,7 +391,7 @@ def save_truck_assignment(form, assignment_id: str | None = None,
 
     if status in ACTIVE_STATUSES:
         for other in storage.read(TRUCK_COLLECTION):
-            if other.get("id") == assignment_id or other.get("status") not in ACTIVE_STATUSES:
+            if other.get("id") == assignment_id or not is_active(other):
                 continue
             shared = set(other.get("covered_mrfs") or []) & set(covered)
             if shared:
@@ -371,6 +408,7 @@ def save_truck_assignment(form, assignment_id: str | None = None,
         "covered_mrfs": covered,
         "planned_pickup_times": planned,
         "effective_date": effective_date,
+        "until_date": until_date,
         "status": status,
         "note": v.data["note"],
     }
@@ -416,13 +454,36 @@ def end_assignment(collection: str, assignment_id: str,
     return storage.update(collection, assignment_id, {"status": "Ended"}, actor)
 
 
+def _read_until_date(v, status: str, effective_date):
+    """
+    "Until when" for a Temporary Replacement.
+
+    Required for that status and only that status: a stand-in covers a known
+    absence, and one with no end date is how a temporary arrangement quietly
+    becomes permanent. A permanent Active assignment has no end, so asking for
+    one there would be noise.
+    """
+    until = v.date("until_date", "Replacement until")
+    if status != "Temporary Replacement":
+        return None
+    if not until:
+        v.fail("until_date",
+               "A temporary replacement needs an end date -- the last day the "
+               "stand-in works this route.")
+        return None
+    if effective_date and until < effective_date:
+        v.fail("until_date", "The end date cannot be before the start date.")
+        return None
+    return until
+
+
 def _active_clash(collection: str, field: str, value, exclude_id: str | None):
     if not value:
         return None
     for row in storage.read(collection):
         if row.get("id") == exclude_id:
             continue
-        if row.get(field) == value and row.get("status") in ACTIVE_STATUSES:
+        if row.get(field) == value and is_active(row):
             return row
     return None
 

@@ -71,12 +71,26 @@ in_route2 = property_service.create(Form({"owner_name": "Iliana Dwane", "type": 
 far_purok = property_service.create(Form({"owner_name": "Far Away", "type": "House",
                                           "purok": "Purok 5"}), B1, ADMIN)
 
+# A household in a barangay this collector is NOT assigned to. The route must
+# never show it -- and neither must the record page, or a collector could file
+# against any address in the city by editing the URL.
+OTHER_B = "brgy-02"
+out_of_route = property_service.create(
+    Form({"owner_name": "Ricardo Cruz", "type": "House", "purok": "Purok 1"}),
+    OTHER_B, ADMIN)
+
 print("\n[1] route scoping")
 route = property_service.for_collector(assignment)
 ok("route holds every property in the assigned barangay",
    {p["id"] for p in route} == {in_route["id"], in_route2["id"], far_purok["id"]})
+ok("another barangay's household is NOT on the route",
+   out_of_route["id"] not in {p["id"] for p in route})
+ok("every row on the route belongs to the assigned barangay",
+   all(p["barangay_id"] == assignment["barangay_id"] for p in route))
 ok("no assignment means no route, not the whole barangay",
    property_service.for_collector(None) == [])
+ok("the out-of-route property does exist -- it is scoped out, not missing",
+   property_service.get(out_of_route["id"]) is not None)
 fails("property must belong to the chosen barangay's purok list",
       lambda: property_service.create(Form({"owner_name": "X", "type": "House",
                                             "purok": "Purok 99"}), B1, ADMIN), "purok")
@@ -155,16 +169,24 @@ fails("oversized image rejected",
           {"proof": Upload("big.jpg", b"x" * (Config.MAX_PROOF_BYTES + 1))}, in_route, COL),
       "proof")
 
-fails("not-collected needs a location",
-      lambda: collection_service.save_entry(
-          Form({"status": "Not Collected", "reason": "Not segregated properly"}),
-          {"proof": Upload("evidence.jpg")}, in_route, COL), "location")
-
+# No written location is asked for any more: the entry names a registered
+# property, which carries its own barangay and purok, so "where" is answered
+# before the collector types anything.
+# A stray `location` is posted here on purpose: the field is gone from the
+# form, so this stands in for an old cached page or a hand-rolled request, and
+# proves the value is dropped rather than quietly stored.
 missed = collection_service.save_entry(
     Form({"status": "Not Collected", "reason": "Not segregated properly",
           "location": "Roadside, corner of Rizal St.",
           "note": "Mixed residual with recyclables"}),
     {"proof": Upload("evidence.JPG")}, in_route, COL)
+ok("not-collected saves without a written location being required",
+   missed["status"] == "Not Collected")
+ok("a location posted anyway is ignored, not stored", "location" not in missed)
+ok("the property still answers where it happened",
+   missed["property_id"] == in_route["id"]
+   and missed["barangay_id"] == in_route["barangay_id"]
+   and missed["purok"] == in_route["purok"])
 ok("not-collected saved with proof", missed["status"] == "Not Collected"
    and missed["image_proof_path"])
 ok("proof filed under today's date folder",
@@ -312,6 +334,156 @@ ok("collection records survive the property being deleted",
 ok("history still renders a deleted property",
    any(r["owner_name"] == "Deleted property"
        for r in collection_service.history_for_collector(COL["id"])))
+
+print("\n[12] the midnight reset")
+from datetime import timedelta
+from services import rollover_service
+
+TOMORROW = timeutil.today() + timedelta(days=1)
+
+# -- what needs no reset: status is date-keyed, not a flag ------------------
+today_counts = collection_service.counts(route)
+before_rows = storage.count("collections")
+tomorrow_counts = collection_service.counts(route, TOMORROW)
+ok("today has recorded work", today_counts["collected"] + today_counts["not_collected"] > 0)
+ok("the next day starts with every property Pending",
+   tomorrow_counts["pending"] == tomorrow_counts["total"]
+   and tomorrow_counts["collected"] == 0
+   and tomorrow_counts["not_collected"] == 0)
+ok("and it costs no writes -- nothing is cleared, the date simply moves on",
+   storage.count("collections") == before_rows)
+ok("today's record is untouched by reading tomorrow",
+   collection_service.counts(route) == today_counts)
+
+# -- what does need resetting: duty is a single value, not a dated one ------
+duty_service.set_duty(COL["id"], True)
+ok("a shift started today is left alone", rollover_service.run() == {"duty_ended": []})
+ok("and the collector is still on duty",
+   duty_service.is_on_duty(storage.get("users", COL["id"])))
+
+storage.update("users", COL["id"], {
+    "duty_changed_at": timeutil.stamp().replace(
+        timeutil.today_str(), timeutil.date_str(timeutil.today() - timedelta(days=1))),
+    "last_location": {"lat": 9.12, "lng": 125.53, "at": timeutil.stamp()},
+}, "test")
+ok("a shift left open overnight is found",
+   [u["id"] for u in rollover_service.stale_duty()] == [COL["id"]])
+ok("the rollover ends it", rollover_service.run()["duty_ended"] == [COL["id"]])
+after = storage.get("users", COL["id"])
+ok("the collector is off duty", not duty_service.is_on_duty(after))
+ok("and yesterday's position is dropped from the live map",
+   after.get("last_location") is None)
+ok("running it again writes nothing", rollover_service.run() == {"duty_ended": []})
+
+duty_service.set_duty(COL["id"], True)
+storage.update("users", COL["id"], {"duty_changed_at": None}, "test")
+ok("duty with no timestamp counts as stale, not as today's",
+   [u["id"] for u in rollover_service.stale_duty()] == [COL["id"]])
+rollover_service.run()
+
+# Carry-overs and collection records must survive the rollover: an
+# uncollected property rolling into the next day is the point of that record,
+# not stale state to be swept up.
+carried = storage.count("carry_overs")
+entries = storage.count("collections")
+duty_service.set_duty(COL["id"], True)
+storage.update("users", COL["id"], {"duty_changed_at": None}, "test")
+rollover_service.run()
+ok("the rollover leaves carry-overs alone", storage.count("carry_overs") == carried)
+ok("and leaves every collection record alone", storage.count("collections") == entries)
+ok("and today's figures are unchanged by it",
+   collection_service.counts(route) == today_counts)
+
+print("\n[13] tag exemptions -- stops nothing is expected from")
+storage.write("collections", [])
+
+# The rule pairs a tag with what is actually being collected. Set the week up
+# explicitly so the test does not depend on whichever day it runs on.
+BIO = "Biodegradable and Net Residual Waste"
+SPECIAL = "Special Waste"
+RECYCLE = "Recyclable Waste"
+
+def set_all_days(waste_type, short, details):
+    form = {}
+    for d in schedule_service.DAYS:
+        form[f"waste_type__{d}"] = waste_type
+        form[f"short__{d}"] = short
+        form[f"tone__{d}"] = "green"
+        form[f"details__{d}"] = details
+    schedule_service.save_week(form, ADMIN)
+
+composting = property_service.create(
+    Form({"owner_name": "Composting House", "type": "House",
+          "purok": "Purok 1", "tag": "Composting"}), B1, ADMIN)
+no_special = property_service.create(
+    Form({"owner_name": "No Special House", "type": "House",
+          "purok": "Purok 1", "tag": "No Special Waste"}), B1, ADMIN)
+plain = property_service.create(
+    Form({"owner_name": "Plain House", "type": "House",
+          "purok": "Purok 1", "tag": "None Composting"}), B1, ADMIN)
+trio = [composting, no_special, plain]
+
+ok("a tag alone exempts nothing",
+   property_service.exemption_for("Composting", None) is None)
+ok("composting is exempt on a biodegradable day",
+   property_service.exemption_for("Composting", BIO))
+ok("but NOT on a recyclable day -- they still put recyclables out",
+   property_service.exemption_for("Composting", RECYCLE) is None)
+ok("no-special-waste is exempt on a special waste day",
+   property_service.exemption_for("No Special Waste", SPECIAL))
+ok("but NOT on a biodegradable day",
+   property_service.exemption_for("No Special Waste", BIO) is None)
+ok("a tag with no rule never exempts",
+   property_service.exemption_for("Senior Citizen", BIO) is None
+   and property_service.exemption_for("None Composting", BIO) is None)
+ok("an untagged property never exempts",
+   property_service.exemption_for(None, BIO) is None
+   and property_service.exemption_for("", BIO) is None)
+
+set_all_days(BIO, "Biodegradable + Residual", "Kitchen Waste")
+rows = {r["owner_name"]: r for r in collection_service.route_with_status(trio)}
+ok("the composting house is marked exempt today",
+   rows["Composting House"]["exempt"] is True
+   and rows["Composting House"]["exempt_note"])
+ok("the no-special house is not, on a biodegradable day",
+   rows["No Special House"]["exempt"] is False)
+ok("the plain house is never exempt", rows["Plain House"]["exempt"] is False)
+
+c = collection_service.counts(trio)
+ok("an exempt stop leaves the register total alone", c["total"] == 3)
+ok("but comes out of what today expects", c["expected"] == 2 and c["exempt"] == 1)
+ok("and is not counted Pending -- nobody is waiting on it", c["pending"] == 2)
+
+# Collect the two that are expected: the round is 100% done, not 67%.
+for prop in (no_special, plain):
+    collection_service.save_entry(
+        Form({"status": "Collected", "qty_0": "1", "unit_0": "Sack"}), None, prop, COL)
+c = collection_service.counts(trio)
+ok("a round with every expected stop done reads 100%, not 67%",
+   c["collected"] == 2 and c["percent"] == 100 and c["pending"] == 0)
+
+# A photo proves a refusal. There is nothing to photograph at a gate that was
+# never going to have waste at it.
+saved = collection_service.save_entry(
+    Form({"status": "Not Collected", "reason": "Nothing expected (property tag)"}),
+    None, composting, COL)
+ok("an exempt stop can be recorded with no photo",
+   saved["status"] == "Not Collected" and saved["image_proof_path"] is None)
+ok("once recorded it stops being exempt -- it is a real entry now",
+   collection_service.route_with_status([composting])[0]["exempt"] is False)
+fails("a non-exempt refusal still demands a photo",
+      lambda: collection_service.save_entry(
+          Form({"status": "Not Collected", "reason": "No garbage taken out"}),
+          None, far_purok, COL), "proof")
+
+# Cleared first: the stops above now hold entries, and a recorded stop counts
+# as a real one whatever its tag says.
+storage.write("collections", [])
+set_all_days(SPECIAL, "Special Waste", "Battery")
+rows = {r["owner_name"]: r for r in collection_service.route_with_status(trio)}
+ok("on a special waste day the exemption swaps over",
+   rows["No Special House"]["exempt"] is True
+   and rows["Composting House"]["exempt"] is False)
 
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{sum(results)}/{len(results)} checks passed")

@@ -63,6 +63,8 @@
     {% endif %}
   {% endwith %}
 
+  {% include 'partials/lightbox.html' %}
+
   <script src="{{ asset('js/app.js') }}" defer></script>
 
   {# Real-time layer, by CDN <script> per the stack constraint. Both files are

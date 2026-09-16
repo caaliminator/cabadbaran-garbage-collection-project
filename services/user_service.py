@@ -108,20 +108,55 @@ def counts() -> dict:
 
 def collectors(role: str, only_unassigned: bool = False,
                including: str | None = None) -> list[dict]:
-    """Active collector accounts of one role, for the assign dropdowns."""
+    """
+    Active collector accounts of one role, for the assign dropdowns.
+
+    Each carries whether they already hold a route and where, so the form can
+    say so next to the name instead of letting the admin pick someone and only
+    then be told it clashes. Whoever is free sorts first.
+
+    Everyone is still returned rather than filtered out: seeing that a
+    collector is taken -- and by which barangay -- is what makes the free ones
+    meaningful, and an edit form has to be able to show its own holder.
+    """
     from services import assignment_service
 
     held = assignment_service.assigned_collector_ids(role)
+    where = _assignment_labels(role)
+
     out = []
     for user in storage.read("users"):
         if user.get("role") != role or user.get("status") != "Active":
             continue
-        if only_unassigned and user["id"] in held and user["id"] != including:
+        taken = user["id"] in held and user["id"] != including
+        if only_unassigned and taken:
             continue
         out.append({"id": user["id"], "full_name": user.get("full_name"),
                     "username": user.get("username"),
-                    "vehicle": user.get("assigned_vehicle")})
-    return sorted(out, key=lambda u: u["full_name"] or "")
+                    "vehicle": user.get("assigned_vehicle"),
+                    "assigned": taken,
+                    "assigned_to": where.get(user["id"], "") if taken else ""})
+    return sorted(out, key=lambda u: (u["assigned"], u["full_name"] or ""))
+
+
+def _assignment_labels(role: str) -> dict[str, str]:
+    """collector id -> a short description of the route they already hold."""
+    from services import assignment_service
+
+    names = {b["id"]: b["name"] for b in storage.read("barangays")}
+    if role == "tricycle_collector":
+        rows = storage.read(assignment_service.TRICYCLE_COLLECTION)
+        field, describe = "collector_id", (
+            lambda r: f"Brgy. {names.get(r.get('barangay_id'), '—')} "
+                      f"({r.get('tricycle_code') or 'no unit'})")
+    else:
+        rows = storage.read(assignment_service.TRUCK_COLLECTION)
+        field, describe = "operator_id", (
+            lambda r: f"{r.get('truck_code') or 'a truck'} · "
+                      f"{len(r.get('covered_mrfs') or [])} MRF(s)")
+
+    return {row[field]: describe(row) for row in rows
+            if assignment_service.is_active(row) and row.get(field)}
 
 
 # ---------------------------------------------------------------------------

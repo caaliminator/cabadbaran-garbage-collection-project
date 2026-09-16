@@ -111,6 +111,9 @@
 .stop--collected     { border-left-color: var(--green-600); }
 .stop--pending       { border-left-color: var(--gold-500); }
 .stop--not-collected { border-left-color: var(--red-500); }
+/* Nothing expected from this stop today -- deliberately the quietest of the
+   four, because it is the one the collector can walk past. */
+.stop--exempt        { border-left-color: var(--border-strong); }
 
 .stop__icon {
   display: grid;
@@ -198,6 +201,21 @@
   margin-top: var(--sp-2);
   font-size: var(--text-sm);
   color: var(--fg-muted);
+}
+
+/* The public report is one column of numbered steps. `.field` carries no
+   outward margin anywhere in the system -- grids and `.stack` supply the gaps
+   -- so this form has to own its own rhythm. Without it every step sat flush
+   against the next and the Send button touched the comment box, which on a
+   phone reads as part of the textarea. */
+.report-form { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* The submit is an action, not another step: a wider gap and a rule separate
+   it from the last field so a thumb never lands on it by accident. */
+.report-form__send {
+  margin-block-start: var(--sp-2);
+  padding-block-start: var(--sp-5);
+  border-block-start: 1px solid var(--border-subtle);
 }
 
 /* Status switcher: two big radio targets instead of the mockup's dropdown --

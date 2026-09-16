@@ -41,10 +41,20 @@
             <p class="entry__sub">{{ d.purok }} · {{ d.date_display }}</p>
             <p class="entry__sub">{{ d.dispute_note }}</p>
 
+            {# Both photos, side by side -- that is the whole point of keeping
+               each record intact rather than overwriting one with the other. #}
             {% if d.image_proof_path %}
-              <a class="card__link"
+              <a class="card__link" data-zoomable
+                 data-zoom-caption="{{ d.owner_name }} — the collector's photo"
                  href="{{ url_for('collector.proof', relative=d.image_proof_path) }}">
                 {{ icon('eye', 'icon--sm') }} View the collector's photo proof
+              </a>
+            {% endif %}
+            {% if d.resident_proof_path %}
+              <a class="card__link" data-zoomable
+                 data-zoom-caption="{{ d.owner_name }} — the resident's photo"
+                 href="{{ url_for('collector.proof', relative=d.resident_proof_path) }}">
+                {{ icon('eye', 'icon--sm') }} View the resident's photo
               </a>
             {% endif %}
           </div>
@@ -81,12 +91,15 @@
       <caption class="sr-only">Anonymous reports from residents</caption>
       <thead>
         <tr>
-          {{ th('Date') }}
-          {{ th('Time') }}
-          {{ th('Property') }}
-          {{ th('Purok') }}
-          {{ th('Reported') }}
-          {{ th('Comment') }}
+          {{ th('Date', w='13%') }}
+          {{ th('Time', w='10%') }}
+          {{ th('Property', w='22%') }}
+          {{ th('Purok', w='12%') }}
+          {{ th('Reported', w='15%') }}
+          {{ th('Comment', w='22%') }}
+          <th scope="col" style="width:72px" class="table__actions">
+            <span class="sr-only">Photo</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -104,6 +117,18 @@
               {% if r.disputed %}<span class="badge badge--warning">Disputed</span>{% endif %}
             </td>
             <td data-label="Comment" class="text-sm muted">{{ r.comment or '—' }}</td>
+            <td class="table__actions">
+              {% if r.image_proof_path %}
+                <a class="btn btn--icon" data-zoomable
+                   data-zoom-caption="{{ r.owner_name }} — photo sent with this report"
+                   href="{{ url_for('collector.proof', relative=r.image_proof_path) }}"
+                   aria-label="View the photo sent with this report">
+                  {{ icon('eye', 'icon--sm') }}
+                </a>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>

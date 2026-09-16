@@ -1,0 +1,163 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, search_input, th, empty %}
+
+{% block page %}
+
+{# ===========================================================================
+   What residents have sent in, across every barangay.
+
+   Read-only. A dispute is settled by the barangay admin who knows the route
+   and the collector; this page is for seeing the pattern city-wide, so it
+   names who has to act rather than acting here.
+   =========================================================================== #}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Resident Reports</h1>
+    <p class="page__sub">
+      Reports sent from the public page. Anonymous — the address is the one the
+      resident picked from a list; nothing about the sender is recorded.
+    </p>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="Resident report summary">
+  {% set tones = ['info', 'warning', 'danger', 'muted'] %}
+  {% for label, value, hint, ico in stats %}
+    {{ stat(label, value, hint, ico, tones[loop.index0]) }}
+  {% endfor %}
+</section>
+
+{% if hotspots %}
+  <div class="notice" role="status">
+    {{ icon('alert', 'icon--sm') }}
+    <div>
+      <p class="strong">Most "Not Collected" reports</p>
+      <p class="text-sm">
+        {% for name, count in hotspots %}
+          {{ name }} ({{ count }}){{ '' if loop.last else ' · ' }}
+        {% endfor %}
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+{# ---- Filters ----------------------------------------------------------- #}
+<section class="card">
+  <form method="get" class="card__body">
+    <div class="form__grid form__grid--2">
+      <div class="field">
+        <label class="field__label" for="barangay">Barangay</label>
+        <select class="field__select" id="barangay" name="barangay">
+          <option value="">All Barangays</option>
+          {% for value, label in barangays %}
+            <option value="{{ value }}"
+                    {% if selected_barangay == value %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="status">Reported As</label>
+        <select class="field__select" id="status" name="status">
+          <option value="">All Reports</option>
+          {% for s in statuses %}
+            <option value="{{ s }}"
+                    {% if selected_status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form__actions">
+        <a class="btn btn--ghost" href="{{ url_for('city.resident_reports') }}">Reset</a>
+        <button type="submit" class="btn btn--primary">
+          {{ icon('search', 'icon--sm') }} Apply filters
+        </button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# ---- Log --------------------------------------------------------------- #}
+<section class="card" data-table-controller="residentReports">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Report Log</h2>
+    {{ search_input('Search barangay or purok', 'resident-search') }}
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="residentReports">
+      <caption class="sr-only">
+        Anonymous reports from residents, newest first
+      </caption>
+      <thead>
+        <tr>
+          {{ th('Date', 'date', w='11%') }}
+          {{ th('Time', w='9%') }}
+          {{ th('Barangay', 'barangay', w='16%') }}
+          {{ th('Property', w='17%') }}
+          {{ th('Purok', w='10%') }}
+          {{ th('Reported', 'reported', w='14%') }}
+          {{ th('Comment', w='18%') }}
+          <th scope="col" style="width:72px" class="table__actions">
+            <span class="sr-only">Photo</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-date="{{ r.date }}" data-barangay="{{ r.barangay_name }}"
+              data-reported="{{ r.status_reported }}">
+            <td data-label="Date">{{ r.date_display }}</td>
+            <td data-label="Time" class="muted text-xs">{{ r.time_display }}</td>
+            <td data-label="Barangay">{{ r.barangay_name }}</td>
+            <td data-label="Property">
+              <span class="strong">{{ r.owner_name or '—' }}</span>
+              <span class="sub">Sender not recorded</span>
+            </td>
+            <td data-label="Purok">{{ r.purok or '—' }}</td>
+            <td data-label="Reported">
+              {{ status(r.status_reported) }}
+              {% if r.disputed %}
+                <span class="badge badge--warning">Disputed</span>
+              {% endif %}
+            </td>
+            <td data-label="Comment" class="text-sm muted">{{ r.comment or '—' }}</td>
+            <td class="table__actions">
+              {% if r.image_proof_path %}
+                <a class="btn btn--icon" data-zoomable
+                   data-zoom-caption="{{ r.owner_name }}, {{ r.barangay_name }} — photo sent with this report"
+                   href="{{ url_for('collector.proof', relative=r.image_proof_path) }}"
+                   aria-label="View the photo sent with this report">
+                  {{ icon('eye', 'icon--sm') }}
+                </a>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if rows %}hidden{% endif %}>
+    {{ empty('No reports yet',
+             'Residents can report a missed collection from the public page — no account needed.',
+             'home') }}
+  </div>
+
+  <div class="card__foot">
+    <span class="text-xs muted" data-table-count></span>
+    <span class="text-xs muted">
+      {{ icon('info', 'icon--sm') }}
+      A disputed report is settled by that barangay's admin, who can see the
+      collector's photo alongside the resident's.
+    </span>
+  </div>
+</section>
+
+{% endblock %}

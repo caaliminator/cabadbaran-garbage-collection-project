@@ -140,4 +140,96 @@
   </div>
 </section>
 
+{# ---- Danger zone ------------------------------------------------------
+   Irreversible, so it is visually separated, states exactly what goes and
+   what stays, and needs a typed word rather than just a click.        #}
+<section class="card card--danger">
+  <div class="card__head">
+    <h2 class="card__title">{{ icon('alert', 'icon--sm') }} Danger Zone</h2>
+  </div>
+  <div class="card__body stack">
+    <div>
+      <p class="strong">Clear all transactional data</p>
+      <p class="text-sm muted">
+        Removes every record of something that happened, so you can work with
+        a clean system. Accounts, barangays and their puroks, the vehicle
+        registry and the weekly waste schedule are kept — the system still
+        starts, and you can still sign in. <span class="strong">This cannot be
+        undone.</span>
+      </p>
+    </div>
+
+    <div class="grid grid--2">
+      <div>
+        <p class="kv__key">Will be removed</p>
+        <ul class="reset-list">
+          {% for name, count in reset_plan.items() %}
+            <li class="{{ 'muted' if not count }}">
+              <span class="mono">{{ count }}</span> {{ name|replace('_', ' ') }}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div>
+        <p class="kv__key">Will be kept</p>
+        <ul class="reset-list">
+          {% for name, count in reset_keep.items() %}
+            <li><span class="mono">{{ count }}</span> {{ name|replace('_', ' ') }}</li>
+          {% endfor %}
+          <li class="muted">image proofs are deleted with their entries</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="row row--end">
+      <button type="button" class="btn btn--danger"
+              data-modal-open="reset-confirm"
+              {% if not reset_total %}disabled aria-disabled="true"{% endif %}>
+        {{ icon('trash', 'icon--sm') }}
+        {% if reset_total %}Clear {{ reset_total }} record(s){% else %}Nothing to clear{% endif %}
+      </button>
+    </div>
+  </div>
+</section>
+
+<div class="modal" id="reset-confirm" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="reset-confirm-title" aria-hidden="true">
+  <form class="modal__panel" method="post"
+        action="{{ url_for('city.reset_data') }}" data-validate novalidate>
+    {{ csrf_field() }}
+    <div class="modal__head">
+      <h2 id="reset-confirm-title">Clear all transactional data?</h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body stack">
+      <p class="text-sm">
+        This deletes <span class="strong">{{ reset_total }} record(s)</span> —
+        every property, collection entry, MRF pickup, delivery, carry-over,
+        unavailability request, resident report, notification, history entry,
+        route assignment and image proof, plus the demo-generated accounts.
+      </p>
+      <p class="text-sm muted">
+        Your logins, the barangays and puroks, the vehicles and the waste
+        schedule stay. There is no undo.
+      </p>
+      <div class="field">
+        <label class="field__label" for="confirm">
+          Type <span class="mono strong">DELETE</span> to confirm
+          <span class="field__req" aria-hidden="true">*</span>
+        </label>
+        <input class="field__input mono" type="text" id="confirm" name="confirm"
+               required autocomplete="off" placeholder="DELETE">
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--danger">
+        {{ icon('trash', 'icon--sm') }} Delete everything
+      </button>
+    </div>
+  </form>
+</div>
+
 {% endblock %}

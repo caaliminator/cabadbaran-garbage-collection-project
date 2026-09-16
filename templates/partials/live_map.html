@@ -3,7 +3,7 @@
 {# ===========================================================================
    Live tracking map.
 
-   Every coordinate, boundary, and zone colour is fetched at runtime from
+   Every coordinate and boundary is fetched at runtime from
    /api/geo/* and /api/live/vehicles -- there is none in this template and
    none in map.js, so real barangay data drops into data/geo/ with no code
    change (see docs/DATA_REQUIREMENTS.md).
@@ -60,7 +60,7 @@
        data-map-canvas
        {% if map_height %}style="height:{{ map_height }}"{% endif %}
        role="application"
-       aria-label="Live map of Cabadbaran City showing barangay zones and active collectors">
+       aria-label="Live map of Cabadbaran City showing collectors on duty">
   </div>
 
   {# What the current filter is actually showing, in words. An empty map has
@@ -73,12 +73,14 @@
   <p class="map__note" data-map-note role="status"></p>
 
   <div class="map__legend" data-map-legend>
+    {# The glyph, not a colour swatch: each vehicle carries its own colour
+       now, so the shape is what a kind is recognised by. #}
     <span class="map__legend-item">
-      <span class="map__legend-dot map__legend-dot--tricycle" aria-hidden="true"></span>
+      {{ icon('tricycle', 'map__legend-glyph') }}
       <strong data-legend="tricycles">0</strong> Tricycles Active
     </span>
     <span class="map__legend-item">
-      <span class="map__legend-dot map__legend-dot--truck" aria-hidden="true"></span>
+      {{ icon('truck', 'map__legend-glyph') }}
       <strong data-legend="trucks">0</strong> Trucks Active
     </span>
     <span class="map__legend-item">
@@ -90,8 +92,4 @@
     </span>
     <span class="map__legend-item text-xs muted" data-legend="stale" hidden></span>
   </div>
-
-  {# The four zone colour groups, filled in by map.js from /api/geo/config so
-     the legend cannot drift from the colours the polygons are drawn with. #}
-  <div class="map__legend-zones" data-map-zones aria-label="Barangay zone groups"></div>
 </div>

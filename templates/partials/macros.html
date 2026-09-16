@@ -79,6 +79,57 @@
 {% endmacro %}
 
 
+{# ---- Assignment options ------------------------------------------------
+   Options for the "who" and "which unit" dropdowns on the assign forms.
+
+   Each row says whether it is already spoken for and by whom, and the taken
+   ones are disabled: the admin's job here is to pick someone free, and the
+   clash was previously only discovered after saving. They are still listed
+   rather than hidden, because "TRI-05 is on Brgy. Bay-ang" is the answer to
+   "where did TRI-05 go" -- an absent option answers nothing.
+
+   `rows` is a list of dicts carrying `assigned` and `assigned_to`; `value`
+   and `text` name the fields to read for each option.
+   ---------------------------------------------------------------------- #}
+{% macro assign_options(rows, value, text, placeholder=None, sub=None) %}
+  {% if placeholder %}<option value="">{{ placeholder }}</option>{% endif %}
+  {% for r in rows %}
+    <option value="{{ r[value] }}" {% if r.assigned %}disabled{% endif %}>
+      {{ r[text] }}{% if sub and r[sub] %} ({{ r[sub] }}){% endif %}
+      —
+      {%- if r.assigned %} Assigned{% if r.assigned_to %} to {{ r.assigned_to }}{% endif %}
+      {%- else %} Not yet assigned{% endif %}
+    </option>
+  {% endfor %}
+{% endmacro %}
+
+
+{# ---- Alert row --------------------------------------------------------
+   One notification in a dashboard card. Same data as the bell in the topbar,
+   so it follows the same rule: an alert with somewhere to go is a link that
+   marks it read and lands on the page answering it, and one without stays
+   inert rather than looking tappable and doing nothing.
+   ---------------------------------------------------------------------- #}
+{% macro alert_row(a) %}
+  {% if a.link_endpoint %}
+    <a class="alert-row alert-row--link {% if a.unread %}alert-row--unread{% endif %}"
+       href="{{ url_for('auth.open_notification', notification_id=a.id) }}">
+  {% else %}
+    <div class="alert-row {% if a.unread %}alert-row--unread{% endif %}">
+  {% endif %}
+      <span class="alert-row__icon alert-row__icon--{{ a.tone }}" aria-hidden="true">
+        {{ icon(a.icon, 'icon--sm') }}
+      </span>
+      <div style="min-width:0">
+        <p class="alert-row__title">{{ a.title }}</p>
+        <p class="alert-row__body">{{ a.message }}</p>
+      </div>
+      <span class="alert-row__time">{{ a.time_display }}</span>
+      {% if a.link_endpoint %}{{ icon('chevron-right', 'icon--sm alert-row__go') }}{% endif %}
+  {% if a.link_endpoint %}</a>{% else %}</div>{% endif %}
+{% endmacro %}
+
+
 {# ---- Empty state ------------------------------------------------------- #}
 {% macro empty(title, message, ico='package') %}
 <div class="empty">
@@ -119,14 +170,20 @@
 
 
 {# ---- Sortable table header -------------------------------------------- #}
-{% macro th(label, key=None, numeric=False) %}
+{# `w` is the column width, and under table-layout:fixed it is binding: the
+   header row alone decides the columns, so no cell value can move them. Give
+   every column in a table a width; they are shares of the table, so they
+   should add up to 100%. #}
+{% macro th(label, key=None, numeric=False, w=None) %}
 {% if key %}
   <th scope="col" data-sort-key="{{ key }}" aria-sort="none"
+      {% if w %}style="width:{{ w }}"{% endif %}
       {% if numeric %}class="table__num"{% endif %}>
     {{ label }}{{ icon('arrow-up', 'icon--sm') }}
   </th>
 {% else %}
-  <th scope="col" {% if numeric %}class="table__num"{% endif %}>{{ label }}</th>
+  <th scope="col" {% if w %}style="width:{{ w }}"{% endif %}
+      {% if numeric %}class="table__num"{% endif %}>{{ label }}</th>
 {% endif %}
 {% endmacro %}
 

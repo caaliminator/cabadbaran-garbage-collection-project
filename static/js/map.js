@@ -4,9 +4,8 @@
    Leaflet, loaded by CDN. Every coordinate, boundary, and colour comes from
    the server at runtime:
 
-       /api/geo/config      centre, zoom, tiles, the four zone colour groups
+       /api/geo/config      centre, zoom, tiles
        /api/geo/barangays   barangay boundary polygons
-       /api/geo/mrfs        MRF markers
        /api/geo/hotspots    the optional hotspot overlay
        /api/live/vehicles   on-duty tricycles and trucks
 
@@ -14,9 +13,20 @@
    barangay boundaries into data/geo/ is meant to require no code change at
    all, and a hardcoded fallback here would quietly defeat that.
 
-   Layer order matters: zones sit underneath, hotspots above them, live
-   vehicles on top -- so switching the hotspot layer on never obscures a
-   moving truck.
+   Nothing is painted over the barangays themselves: no fill and no boundary
+   line. The geometry is still loaded, because it is what the map frames
+   itself on -- the city on open, one barangay on a scoped page -- but it is
+   never drawn, so the basemap underneath is read directly.
+
+   Nor are the MRFs. This map answers one question -- where is the collector
+   right now -- and it answers it for a resident waiting at their gate as much
+   as for the city. A collector roams their barangay; the facility they end up
+   at is not what anyone is watching for, and 31 fixed dots only crowded the
+   one marker that moves. The MRF worklist lives on the MRF page, where it can
+   carry the status a dot never could.
+
+   Layer order matters: hotspots sit underneath, live vehicles on top -- so
+   switching the hotspot layer on never obscures a moving truck.
    ========================================================================== */
 
 (function () {
@@ -61,13 +71,11 @@
 
       const baseLayers = this.basemaps(config, map);
 
-      const zoneLayer = L.layerGroup().addTo(map);
-      const mrfLayer = L.layerGroup().addTo(map);
       const hotspotLayer = L.layerGroup();
       const vehicleLayer = L.layerGroup().addTo(map);
 
       const state = {
-        node, map, zoneLayer, mrfLayer, hotspotLayer, vehicleLayer,
+        node, map, hotspotLayer, vehicleLayer,
         config,
         filter: node.dataset.mapFilter || 'all',
         barangay: node.dataset.mapBarangay || '',
@@ -83,24 +91,12 @@
       // centring on them at all.
       state.map.on('dragstart', () => { state.userMoved = true; });
 
-      await this.drawZones(state);
-      await this.drawMrfs(state);
-
-      // One listener for everything that changes with scale: the MRF labels,
-      // and how much of the street layer the zone fills are allowed to cover.
-      const onZoom = () => {
-        this.refreshMrfLabels(state);
-        this.refreshZoomBand(state);
-      };
-      onZoom();
-      map.on('zoomend', onZoom);
+      await this.loadZones(state);
 
       if (state.followVehicle) this.followMe(state);
       else if (state.locateZoom) this.locate(state);
 
       const control = L.control.layers(baseLayers, {
-        'Barangay zones': zoneLayer,
-        'MRF locations': mrfLayer,
         'Live vehicles': vehicleLayer,
       }, { collapsed: true }).addTo(map);
 
@@ -111,7 +107,6 @@
 
       L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
-      this.drawZoneLegend(state);
       this.wireControls(state);
       this.wireLiveUpdates(state);
       await this.drawVehicles(state);
@@ -177,33 +172,21 @@
 
     /* ---- Layers -------------------------------------------------------- */
 
-    async drawZones(state) {
+    /* Load the barangay boundaries without drawing them.
+
+       The polygons are built but never added to the map: they exist only as
+       bounds, which is what frames the view -- the whole city on a public
+       map, the one barangay a scoped page belongs to. Every mark they used to
+       make (the coloured fill, then the outline that replaced it) is gone, so
+       the streets, landmarks and building shapes on the basemap come through
+       unobstructed, and a vehicle's pin is the only thing on top of them.
+
+       Leaflet computes a polygon's bounds from its coordinates, so this works
+       on a layer that was never added to a map. */
+    async loadZones(state) {
       const data = await fetch('/api/geo/barangays').then((r) => r.json());
-      const groups = {};
-      (state.config.zone_groups || []).forEach((g, i) => { groups[g.key] = i; });
 
-      const drawn = L.geoJSON(data, {
-        // Two classes, no colour: the zone group and the barangay id. Which of
-        // them actually paints the polygon is decided in components.css, so
-        // this file still holds no colour value of its own.
-        style: (feature) => ({
-          className: 'map-zone'
-            + ` map-zone--${feature.properties.zone_group || 'none'}`
-            + (feature.properties.barangay_id
-                ? ` map-zone--${feature.properties.barangay_id}` : ''),
-          weight: 2,
-        }),
-        onEachFeature: (feature, layer) => {
-          const p = feature.properties;
-          layer.bindTooltip(p.name, { permanent: false, direction: 'center' });
-          layer.bindPopup(
-            `<strong>${p.name}</strong><br>${p.zone_label || ''}` +
-            (p.purok_count ? `<br>${p.purok_count} puroks` : '')
-          );
-        },
-      });
-
-      state.zoneLayer.clearLayers();
+      const drawn = L.geoJSON(data, { interactive: false });
       state.zoneLayers = {};
       drawn.eachLayer((layer) => {
         const id = layer.feature?.properties?.barangay_id;
@@ -211,82 +194,30 @@
       });
 
       if (data.meta.with_geometry > 0) {
-        drawn.addTo(state.zoneLayer);
         state.cityBounds = drawn.getBounds();
 
-        // A page pinned to one barangay opens on that barangay, with the rest
-        // of the city faded back rather than hidden -- a collector needs to see
-        // where their zone sits, not a shape floating on grey.
         if (state.barangay && state.zoneLayers[state.barangay]) {
           this.focusBarangay(state, state.barangay);
         } else if (state.cityBounds.isValid()) {
           state.map.fitBounds(state.cityBounds, { padding: [16, 16] });
         }
 
-        // Geometry that is still flagged a placeholder draws normally, but the
-        // map must never present invented shapes as surveyed boundaries.
+        // Placeholder geometry no longer shows on the map, but it still
+        // decides where the map opens, so the caveat stands.
         if (data.meta.placeholder) {
           this.note(state,
-            'Boundaries and MRF pins are illustrative approximations, not ' +
-            'surveyed data. See docs/DATA_REQUIREMENTS.md.');
+            'Barangay boundaries are illustrative approximations, not surveyed '
+            + 'data, so the map may open slightly off. See '
+            + 'docs/DATA_REQUIREMENTS.md.');
         }
       } else {
-        // Nothing to draw is a normal state before the real boundary data
-        // arrives -- say so rather than showing a blank map.
+        // Without geometry there is nothing to frame on, so the map stays on
+        // the configured city centre -- say why rather than leaving it
+        // looking arbitrary.
         this.note(state,
           `Barangay boundaries have not been loaded yet (${data.meta.total} barangays known). ` +
           'See docs/DATA_REQUIREMENTS.md.');
       }
-    },
-
-    async drawMrfs(state) {
-      const data = await fetch('/api/geo/mrfs').then((r) => r.json());
-      state.mrfLayer.clearLayers();
-
-      // 31 MRFs inside a 17 km city overlap badly at city zoom, so these are
-      // small dots that carry their name in a tooltip, not labelled pills like
-      // the vehicles. The label only appears once the map is zoomed in far
-      // enough for the dots to have separated (see refreshMrfLabels).
-      state.mrfMarkers = [];
-      data.mrfs.filter((m) => m.located).forEach((mrf) => {
-        const marker = L.marker([mrf.lat, mrf.lng], {
-          icon: L.divIcon({
-            className: 'map-mrf'
-              + (state.barangay && mrf.barangay_id === state.barangay
-                  ? ' map-mrf--focus' : ''),
-            html: '<span class="map-mrf__dot"></span>'
-                  + `<span class="map-mrf__name">${mrf.barangay_name}</span>`,
-            iconSize: [14, 14],
-            iconAnchor: [7, 7],
-          }),
-          // Keep the focused barangay's own MRF clickable above its neighbours.
-          zIndexOffset: state.barangay && mrf.barangay_id === state.barangay ? 400 : 0,
-        })
-          .bindTooltip(mrf.name, { direction: 'top', offset: [0, -8] })
-          .bindPopup(
-            `<strong>${mrf.name}</strong><br>Materials Recovery Facility` +
-            `<br>Barangay ${mrf.number} — ${mrf.barangay_name}`)
-          .addTo(state.mrfLayer);
-        state.mrfMarkers.push(marker);
-      });
-
-      this.refreshMrfLabels(state);
-
-      if (data.meta.located === 0 && data.meta.total > 0) {
-        const existing = state.node.querySelector('[data-map-note]')?.textContent || '';
-        this.note(state, `${existing} MRF locations are not loaded yet.`.trim());
-      }
-    },
-
-    /* MRF names are only legible once the dots have room; below that zoom
-       they would stack into an unreadable block, which is exactly what the
-       first version of this map did. */
-    refreshMrfLabels(state) {
-      const show = state.map.getZoom() >= 14;
-      (state.mrfMarkers || []).forEach((marker) => {
-        const node = marker.getElement();
-        if (node) node.classList.toggle('map-mrf--labelled', show);
-      });
     },
 
     /* Open on the viewer's own position, when they allow it.
@@ -399,55 +330,20 @@
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
     },
 
-    /* Which scale the map is being read at, published to CSS as a data
-       attribute on the map container.
-
-       Zone fills are a city-scale device: 31 coloured sheets are what makes
-       the city legible from above, and the same sheets are what hide the
-       roads once you are down among them. Rather than switching the layer
-       off, the fills step back as the scale closes in -- the barangay stays
-       identifiable, and its streets come through underneath. The thresholds
-       are named rather than numeric so the CSS reads as intent. */
-    refreshZoomBand(state) {
-      const zoom = state.map.getZoom();
-      state.node.dataset.mapZoom =
-        zoom >= 17 ? 'street' : zoom >= 15 ? 'near' : 'city';
-    },
-
-    /* Zoom to one barangay and fade the others back. */
+    /* Zoom to one barangay. With nothing drawn there is no shape to
+       highlight and no neighbour to fade -- the view itself is what says
+       which barangay is being looked at. */
     focusBarangay(state, barangayId) {
       const target = (state.zoneLayers || {})[barangayId];
-      Object.entries(state.zoneLayers || {}).forEach(([id, layer]) => {
-        const node = layer.getElement && layer.getElement();
-        if (node) node.classList.toggle('map-zone--faded', id !== barangayId);
-      });
       if (target && target.getBounds) {
         state.map.fitBounds(target.getBounds(), { padding: [40, 40], maxZoom: 15 });
       }
     },
 
     clearFocus(state) {
-      Object.values(state.zoneLayers || {}).forEach((layer) => {
-        const node = layer.getElement && layer.getElement();
-        if (node) node.classList.remove('map-zone--faded');
-      });
       if (state.cityBounds && state.cityBounds.isValid()) {
         state.map.fitBounds(state.cityBounds, { padding: [16, 16] });
       }
-    },
-
-    /* The four zone colour groups, printed from the server's own config so the
-       legend can never drift from what the polygons are painted with. */
-    drawZoneLegend(state) {
-      const slot = state.node.querySelector('[data-map-zones]');
-      if (!slot) return;
-      slot.innerHTML = '';
-      (state.config.zone_groups || []).forEach((group) => {
-        const item = el('span', 'map__legend-item');
-        item.appendChild(el('span', `map__legend-dot map__legend-dot--${group.key}`));
-        item.appendChild(el('span', null, group.label));
-        slot.appendChild(item);
-      });
     },
 
     async drawHotspots(state) {
@@ -587,10 +483,58 @@
       });
     },
 
+    /* The tricycle and truck glyphs, copied from partials/icons.html so a pin
+       and a table row show the same vehicle the same way. Paths only: the
+       stroke is currentColor and every dimension comes from the CSS, which
+       keeps this file free of colour as the rest of it is. */
+    GLYPHS: {
+      tricycle: '<circle cx="5.5" cy="17.5" r="3.5"/>'
+        + '<circle cx="18.5" cy="17.5" r="3.5"/>'
+        + '<path d="M5.5 17.5 9 7h4l3 6M9 7H7m8 10.5h-6"/>',
+      truck: '<path d="M1 3h13v13H1zM14 8h4l3 3v5h-7"/>'
+        + '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/>',
+    },
+
+    /* How many per-vehicle colours components.css defines. Kept in step with
+       the .map-pin--vNN block there; a mismatch would only ever mean some
+       colours go unused, never a pin without one. */
+    COLOURS: 16,
+
+    /* Which colour slot a vehicle owns, from its code alone.
+
+       Deliberately not "the order they arrived in": that would hand TRI-04 a
+       different colour on every reload, on every device, and to every viewer
+       -- and a colour that will not sit still is worse than no colour. A hash
+       of the code is stable everywhere, forever, with no server round trip and
+       nothing to store.
+
+       The multiplier is the usual small odd prime; the >>> 0 keeps it an
+       unsigned 32-bit value, because a negative index names no class. */
+    colourOf(code) {
+      let hash = 0;
+      for (let i = 0; i < code.length; i += 1) {
+        hash = (hash * 31 + code.charCodeAt(i)) >>> 0;
+      }
+      return String(hash % this.COLOURS).padStart(2, '0');
+    },
+
+    /* A pin is the vehicle's glyph and its plate in one pill. The glyph says
+       what kind of vehicle it is -- readable further off than the plate -- and
+       the colour says which one, so two tricycles in the same purok are told
+       apart at a glance. An unknown kind still gets its plate, just without a
+       glyph; a vehicle with no code still gets its kind's colour. */
     icon(kind, label) {
+      const glyph = this.GLYPHS[kind];
+      const colour = label ? ` map-pin--v${this.colourOf(String(label))}` : '';
       return L.divIcon({
-        className: `map-pin map-pin--${kind}`,
-        html: `<span class="map-pin__label">${label}</span>`,
+        className: `map-pin map-pin--${kind}${colour}`,
+        html: '<span class="map-pin__body">'
+          + (glyph
+              ? '<svg class="map-pin__glyph" viewBox="0 0 24 24" '
+                + `aria-hidden="true" focusable="false">${glyph}</svg>`
+              : '')
+          + `<span class="map-pin__label">${label}</span>`
+          + '</span>',
         iconSize: [null, null],
       });
     },

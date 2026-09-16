@@ -34,7 +34,8 @@
         </div>
       </div>
     {% else %}
-      <form method="post" data-validate novalidate data-report-form
+      <form method="post" enctype="multipart/form-data" class="report-form"
+            data-validate novalidate data-report-form
             data-options-url="{{ url_for('public.api_properties') }}">
         {{ csrf_field() }}
         <input type="hidden" name="action" value="submit">
@@ -73,37 +74,68 @@
             {% endfor %}
           </select>
           <p class="field__hint">Narrows the list below. You can leave it as is.</p>
+          <noscript>
+            <button type="submit" class="btn btn--secondary btn--sm"
+                    name="action" value="choose">
+              Continue
+            </button>
+          </noscript>
         </div>
 
-        {# ---- Step 3: property ---- #}
+        {# ---- Step 3: property ----
+           A normal one-line select, not a `size="6"` listbox. The listbox was
+           styled by .field__select, which is built for a single-line control:
+           its chevron was painted over the right-hand end of every row, long
+           names were cut off mid-word, and with nothing chosen yet it left a
+           150px empty box that reads as a broken field rather than one waiting
+           for input. On a phone the native picker is full screen and can be
+           typed at, which beats six clipped rows in any case. #}
         <div class="field">
           <label class="field__label" for="property_id">
             3. Your Household or Establishment<span class="field__req" aria-hidden="true">*</span>
             <span class="sr-only">(required)</span>
           </label>
+
+          {# A barangay can hold hundreds of registered properties. With
+             JavaScript this narrows the list as you type; without it, the
+             Continue button below applies it. #}
+          <input class="field__input" type="search" id="property_search" name="search"
+                 value="{{ selected_search }}" data-report-search autocomplete="off"
+                 placeholder="Type a name to narrow the list…"
+                 aria-controls="property_id"
+                 {% if not selected_barangay %}disabled{% endif %}>
+
           <select class="field__select" id="property_id" name="property_id" required
-                  data-report-property size="6" style="min-height:150px"
+                  data-report-property
                   {% if not selected_barangay %}disabled{% endif %}>
+            {# Always first, and always empty: a one-line select preselects its
+               first option, so without this the form would arrive holding a
+               household the resident never picked. #}
+            <option value="">
+              {%- if not selected_barangay -%}Choose your barangay first
+              {%- elif not properties and selected_search -%}No match for "{{ selected_search }}"
+              {%- elif not properties -%}No properties are registered here yet
+              {%- else -%}Select your household or establishment…{%- endif -%}
+            </option>
             {% for p in properties %}
               <option value="{{ p.id }}">{{ p.owner_name }} — {{ p.purok }} ({{ p.type }})</option>
-            {% else %}
-              <option value="" disabled>
-                {% if selected_barangay %}
-                  No properties are registered here yet
-                {% else %}
-                  Choose your barangay first
-                {% endif %}
-              </option>
             {% endfor %}
           </select>
+
           <p class="field__hint" data-report-count>
             {{ properties|length }} listed. If yours is missing, ask your
             barangay office to add it.
           </p>
+          <noscript>
+            <button type="submit" class="btn btn--secondary btn--sm"
+                    name="action" value="choose">
+              Apply search
+            </button>
+          </noscript>
         </div>
 
         {# ---- Step 4: the answer ---- #}
-        <fieldset style="border:0;padding:0;margin:0 0 var(--sp-4)">
+        <fieldset style="border:0;padding:0;margin:0">
           <legend class="field__label" style="margin-bottom:var(--sp-2)">
             4. What happened?<span class="field__req" aria-hidden="true">*</span>
             <span class="sr-only">(required)</span>
@@ -120,6 +152,26 @@
           </div>
         </fieldset>
 
+        {# ---- Step 5: photo ---- #}
+        <div class="field">
+          <span class="field__label" id="report-photo-label">
+            5. Photo <span class="muted">(optional)</span>
+          </span>
+          <label class="dropzone" data-dropzone>
+            <input type="file" name="photo" accept="image/png, image/jpeg"
+                   capture="environment"
+                   aria-labelledby="report-photo-label" data-dropzone-input>
+            {{ icon('download', 'icon--lg') }}
+            <span class="strong" data-dropzone-label>Tap to take or upload a photo</span>
+            <span class="dropzone__hint">JPG or PNG, up to 5 MB</span>
+            <img class="dropzone__preview" data-dropzone-preview alt="" hidden>
+          </label>
+          <p class="field__hint">
+            A picture of the uncollected waste helps your barangay admin decide
+            if your report and the collector's record disagree.
+          </p>
+        </div>
+
         <div class="field">
           <label class="field__label" for="comment">
             Comment <span class="muted">(optional)</span>
@@ -128,14 +180,15 @@
                     placeholder="Anything the barangay should know…"></textarea>
         </div>
 
-        <button type="submit" class="btn btn--primary btn--lg btn--block">
-          {{ icon('check', 'icon--sm') }} Send Report
-        </button>
-
-        <p class="field__hint" style="margin-top:var(--sp-3);text-align:center">
-          {{ remaining }} of {{ limit }} report{{ '' if limit == 1 else 's' }}
-          left today from this device.
-        </p>
+        <div class="report-form__send">
+          <button type="submit" class="btn btn--primary btn--lg btn--block">
+            {{ icon('check', 'icon--sm') }} Send Report
+          </button>
+          <p class="field__hint" style="margin-top:var(--sp-3);text-align:center">
+            {{ remaining }} of {{ limit }} report{{ '' if limit == 1 else 's' }}
+            left today from this device.
+          </p>
+        </div>
       </form>
     {% endif %}
   </div>
@@ -160,7 +213,10 @@
       <li>
         {{ icon('info', 'icon--sm') }}
         <span>Reports are anonymous. No name, account, or location is
-              recorded.</span>
+              recorded — your barangay admin sees the address you picked and
+              anything you send, never who sent it. A photo is only shown to
+              your barangay admin and the city, never on the public
+              pages.</span>
       </li>
     </ul>
   </div>

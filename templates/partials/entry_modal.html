@@ -29,6 +29,7 @@
         <div class="kv"><span class="kv__key">Purok</span><span class="kv__val" data-fill="purok">—</span></div>
         <div class="kv"><span class="kv__key">Collector</span><span class="kv__val" data-fill="collector">—</span></div>
         <div class="kv"><span class="kv__key">Vehicle</span><span class="kv__val mono" data-fill="vehicle">—</span></div>
+        <div class="kv"><span class="kv__key">Date</span><span class="kv__val" data-fill="date">—</span></div>
         <div class="kv"><span class="kv__key">Time</span><span class="kv__val" data-fill="time">—</span></div>
         <div class="kv"><span class="kv__key">Reason</span><span class="kv__val" data-fill="reason">—</span></div>
       </div>
@@ -38,15 +39,13 @@
         <span class="kv__val text-sm" data-fill="load">—</span>
       </div>
 
-      {# Where it happened. Two answers, because they come from different
-         places and can disagree: what the collector wrote down, and the GPS
-         their phone recorded at the stop. #}
+      {# Where it happened. The property named above is the address; this is
+         the GPS the collector's phone recorded standing at it, which is the
+         part the property record cannot supply. Blank when they did not tap
+         Capture -- indoors or under cover it often will not get a fix. #}
       <div class="kv">
-        <span class="kv__key">Location</span>
-        <span class="kv__val">
-          <span class="text-sm" data-fill="location">—</span>
-          <span class="sub mono" data-fill="coords">—</span>
-        </span>
+        <span class="kv__key">GPS at the stop</span>
+        <span class="kv__val mono text-sm" data-fill="coords">Not captured</span>
       </div>
 
       <div class="kv">
@@ -59,7 +58,10 @@
         <p class="text-xs muted" style="margin:var(--sp-1) 0 0">
           Taken by the collector at the location above.
         </p>
-        <img class="dropzone__preview" data-proof-img alt="Image proof for this entry"
+        <img class="dropzone__preview" data-proof-img data-zoomable
+             tabindex="0" role="button"
+             alt="Image proof for this entry"
+             data-zoom-caption="Image proof for this entry"
              style="margin-top:var(--sp-2)">
       </div>
     </div>

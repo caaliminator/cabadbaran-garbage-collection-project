@@ -60,14 +60,23 @@ def barangay_options() -> list[tuple[str, str]]:
 
 
 def purok_options(barangay_id: str) -> list[str]:
-    """Only puroks that actually have a registered property."""
+    """
+    Every purok the barangay declares, in the barangay's own order.
+
+    Deliberately *not* narrowed to puroks that already hold a registered
+    property. A resident picks their purok to find their own address, and for
+    most barangays that filter returns an empty list -- which reads as "your
+    area is not covered" when it only means "nothing registered here yet".
+
+    Any purok found on a property but missing from the declared list is
+    appended, so a property can never become unreachable through this form.
+    """
     if not barangay_id:
         return []
+    declared = (storage.find_one("barangays", id=barangay_id) or {}).get("puroks") or []
     found = {p.get("purok") for p in storage.find("properties", barangay_id=barangay_id)
              if p.get("purok")}
-    order = (storage.find_one("barangays", id=barangay_id) or {}).get("puroks") or []
-    known = [p for p in order if p in found]
-    return known + sorted(found - set(known))
+    return list(declared) + sorted(found - set(declared))
 
 
 def property_options(barangay_id: str, purok: str = "",
@@ -100,10 +109,15 @@ def property_options(barangay_id: str, purok: str = "",
 # Filing a report
 # ---------------------------------------------------------------------------
 
-def submit(form, ip: str, fingerprint: str = "", date=None) -> dict:
+def submit(form, ip: str, fingerprint: str = "", date=None, files=None) -> dict:
     """
     File a report. Returns the stored record, with `disputed` set when the
     resident disagrees with a collector's entry.
+
+    `files` is the request's file mapping; a `photo` in it is optional and is
+    validated by the same rules as a collector's proof (JPG/PNG, size capped).
+    It is saved only once every other field has passed, so a rejected form
+    never leaves an orphaned upload on disk.
     """
     day = timeutil.date_str(date or timeutil.today())
     device_key = _device_key(ip, fingerprint)
@@ -129,6 +143,10 @@ def submit(form, ip: str, fingerprint: str = "", date=None) -> dict:
 
     v.raise_if_invalid()
 
+    upload = (files or {}).get("photo")
+    proof = (collection_service.save_proof(upload, day)
+             if upload and getattr(upload, "filename", "") else None)
+
     entry = collection_service.entry_for(property_id, day)
     disputed = bool(entry and entry.get("status") != status
                     and entry.get("source") == collection_service.SOURCE_COLLECTOR)
@@ -143,6 +161,7 @@ def submit(form, ip: str, fingerprint: str = "", date=None) -> dict:
         "comment": v.data["comment"],
         "device_key": device_key,
         "disputed": disputed,
+        "image_proof_path": proof,
         "matched_entry_id": entry["id"] if entry else None,
     }, actor="public")
 
@@ -166,6 +185,11 @@ def _apply_to_collection(report: dict, entry: dict | None, prop: dict, day: str)
                           Disputed. Overwriting would destroy the collector's
                           record, including their photo proof, on the word of
                           an anonymous form.
+
+    A resident's photo follows the same rule. On a new entry it becomes the
+    entry's proof; on an existing one it is filed alongside as
+    `resident_proof_path`, never over the collector's own photo -- the admin
+    settling a dispute needs to see both.
     """
     status = report["status_reported"]
 
@@ -182,7 +206,7 @@ def _apply_to_collection(report: dict, entry: dict | None, prop: dict, day: str)
             "timestamp": timeutil.stamp(),
             "waste": [],
             "reason": "Reported by resident" if status == NOT_COLLECTED else "",
-            "image_proof_path": None,
+            "image_proof_path": report.get("image_proof_path"),
             "note": report.get("comment", ""),
             "source": collection_service.SOURCE_PUBLIC,
             "disputed": False,
@@ -192,6 +216,8 @@ def _apply_to_collection(report: dict, entry: dict | None, prop: dict, day: str)
         return
 
     changes = {"reported_by_resident": True}
+    if report.get("image_proof_path"):
+        changes["resident_proof_path"] = report["image_proof_path"]
     if report["disputed"]:
         changes["disputed"] = True
         changes["dispute_note"] = (

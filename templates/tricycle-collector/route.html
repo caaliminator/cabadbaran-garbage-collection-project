@@ -96,7 +96,8 @@
     <div class="stops">
       {% for r in rows %}
         {% set tone = 'collected' if r.status == 'Collected'
-                      else ('not-collected' if r.status == 'Not Collected' else 'pending') %}
+                      else ('not-collected' if r.status == 'Not Collected'
+                            else ('exempt' if r.exempt else 'pending')) %}
         <a class="stop stop--{{ tone }}"
            href="{{ url_for('collector.tricycle_record', property_id=r.id) }}">
           <span class="stop__icon" aria-hidden="true">
@@ -115,7 +116,11 @@
           </span>
 
           <span class="stop__side">
-            {{ status(r.status) }}
+            {% if r.exempt %}
+              <span class="badge badge--muted">None expected</span>
+            {% else %}
+              {{ status(r.status) }}
+            {% endif %}
             {% if r.time %}<span class="stop__time">{{ r.time }}</span>{% endif %}
           </span>
 
@@ -129,6 +134,10 @@
             <span class="stop__load">
               <span class="badge badge--danger">{{ r.reason }}</span>
               {% if r.disputed %}<span class="badge badge--warning">Disputed</span>{% endif %}
+            </span>
+          {% elif r.exempt %}
+            <span class="stop__load">
+              <span class="text-xs muted">{{ r.exempt_note }}</span>
             </span>
           {% endif %}
         </a>
@@ -148,8 +157,10 @@
       <div class="card__head"><h2 class="card__title">Today's Progress</h2></div>
       <div class="card__body route-progress">
         <div class="route-progress__head">
+          {# Against what today actually asks for, not the whole register:
+             a property whose tag exempts it today is not a miss. #}
           <span class="route-progress__count">
-            {{ counts.collected }}<small> / {{ counts.total }}</small>
+            {{ counts.collected }}<small> / {{ counts.expected }}</small>
           </span>
           <span class="badge badge--info">{{ counts.percent }}% done</span>
         </div>
@@ -163,6 +174,9 @@
           <div><dd>{{ counts.collected }}</dd><dt>Collected</dt></div>
           <div><dd>{{ counts.pending }}</dd><dt>Pending</dt></div>
           <div><dd>{{ counts.not_collected }}</dd><dt>Not collected</dt></div>
+          {% if counts.exempt %}
+            <div><dd>{{ counts.exempt }}</dd><dt>None expected</dt></div>
+          {% endif %}
         </dl>
       </div>
     </div>

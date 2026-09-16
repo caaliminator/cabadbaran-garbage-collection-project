@@ -48,15 +48,33 @@
             {% if not unread_count %}hidden{% endif %}>{{ unread_count }}</span>
     </button>
 
-    <div class="pop__panel" id="notif-panel" data-open="false">
+    {# --sheet: on a phone this fills the screen below the topbar instead of
+       hanging off the bell as a 380px stub. The user menu below is two items
+       and deliberately does not get it. #}
+    <div class="pop__panel pop__panel--sheet" id="notif-panel" data-open="false">
       <div class="pop__head">
         <span>Alerts &amp; Notifications</span>
         <span class="badge badge--info">{{ unread_count }} new</span>
       </div>
-      <div class="pop__list" data-notification-list>
+      {# realtime.js needs the role to know whether an alert arriving over the
+         socket leads anywhere for this viewer -- see link_roles in
+         services/realtime.py. #}
+      <div class="pop__list" data-notification-list
+           data-viewer-role="{{ user.role }}"
+           data-notification-open="{{ url_for('auth.open_notification', notification_id='__id__') }}">
         {% for a in alerts %}
-          <div class="pop__item {% if a.unread %}pop__item--unread{% endif %}">
-            <span class="stat__icon stat__icon--{{ 'danger' if a.tone == 'danger' else 'warning' if a.tone == 'warning' else 'info' }}"
+          {# An alert with somewhere to go is a link: tapping it marks the
+             alert read and lands on the page that answers it. One with no
+             destination stays a <div>, so nothing looks tappable that is
+             not. #}
+          {% set tone_class = 'danger' if a.tone == 'danger' else 'warning' if a.tone == 'warning' else 'info' %}
+          {% if a.link_endpoint %}
+            <a class="pop__item pop__item--link {% if a.unread %}pop__item--unread{% endif %}"
+               href="{{ url_for('auth.open_notification', notification_id=a.id) }}">
+          {% else %}
+            <div class="pop__item {% if a.unread %}pop__item--unread{% endif %}">
+          {% endif %}
+            <span class="stat__icon stat__icon--{{ tone_class }}"
                   style="width:32px;height:32px;border-radius:10px">
               {{ icon(a.icon or 'bell', 'icon--sm') }}
             </span>
@@ -65,7 +83,10 @@
               <p class="alert-item__body">{{ a.message }}</p>
             </div>
             <time class="alert-item__time">{{ a.time_display }}</time>
-          </div>
+            {% if a.link_endpoint %}
+              {{ icon('chevron-right', 'icon--sm pop__item__go') }}
+            {% endif %}
+          {% if a.link_endpoint %}</a>{% else %}</div>{% endif %}
         {% else %}
           <p class="empty">You're all caught up.</p>
         {% endfor %}

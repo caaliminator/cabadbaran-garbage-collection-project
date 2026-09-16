@@ -5,7 +5,7 @@ Run every phase's checks.
 
 Each file is a standalone script rather than a pytest suite, so it runs with
 no test dependency at all -- in keeping with the project's stack constraint.
-Phases 0 and 2-8 build their own throwaway data directory and clean it up;
+Phases 0 and 2-9 build their own throwaway data directory and clean it up;
 phase 1 exercises the live store and reissues the demo passwords as a side
 effect, which is why it prints them.
 """
@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 
 def main() -> int:
     passed = failed = 0
-    for phase in range(9):
+    for phase in range(10):
         script = HERE / f"phase{phase}_check.py"
         if not script.exists():
             continue

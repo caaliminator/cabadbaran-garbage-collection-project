@@ -217,18 +217,48 @@ for f in templates.rglob("*.html"):
         offenders.append(f.name)
 ok(f"no template holds coordinates or polygons", not offenders) or print("      ", offenders)
 
-print("\n[10] per-barangay zone colours live in CSS, not in JS")
+print("\n[10] barangays are not drawn on the map at all")
 css = (Path(_ROOT) / "static" / "css"
        / "components.css").read_text(encoding="utf-8")
-brgy_rules = re.findall(r"\.map-zone--(brgy-\d+)\s*\{", css)
-ok("31 barangay colour rules present", len(set(brgy_rules)) == 31)
-ok("every rule sets a distinct fill",
-   len(set(re.findall(r"\.map-zone--brgy-\d+ \{ fill: (#[0-9a-f]{6})", css))) == 31)
-ok("map.js emits the barangay class", "map-zone--${feature.properties.barangay_id}" in map_js
-   or "barangay_id}" in map_js)
+ok("no per-barangay colour rules remain",
+   not re.findall(r"\.map-zone--brgy-\d+\s*\{", css))
+ok("no zone polygon styling remains at all", ".map-zone" not in css)
+ok("map.js gives the polygons no class and no style",
+   "map-zone" not in map_js)
+ok("the boundary geometry is still loaded, for framing only",
+   "loadZones" in map_js and "getBounds()" in map_js)
+ok("no polygon is ever added to the map",
+   "drawn.addTo" not in map_js and "zoneLayer," not in map_js)
+ok("the polygons cannot be clicked either", "interactive: false" in map_js)
+ok("the zone layer is gone from the layer control",
+   "Barangay zones" not in map_js)
 ok("map.js still holds no colour value", not re.search(r"#[0-9a-fA-F]{6}\b", map_js))
-ok("zone-group colours kept as a working fallback",
-   all(f".map-zone--zone-{k}" in css for k in "abcd"))
+ok("a scoped page still frames itself on its barangay",
+   "focusBarangay" in map_js and "fitBounds" in map_js)
+ok("no MRF markers are drawn on the map",
+   "map-mrf" not in map_js and "map-mrf" not in css
+   and "/api/geo/mrfs" not in map_js)
+ok("the only markers left are the live vehicles",
+   "MRF locations" not in map_js and "'Live vehicles'" in map_js)
+
+print("\n[10b] vehicle pins carry a glyph for their kind")
+ok("map.js defines a tricycle and a truck glyph",
+   "GLYPHS" in map_js and "tricycle:" in map_js and "truck:" in map_js)
+ok("the pin renders the glyph as inline SVG", 'class="map-pin__glyph"' in map_js)
+ok("the glyph is styled in CSS, not in JS", ".map-pin__glyph {" in css)
+ok("every vehicle gets its own colour, keyed off its code",
+   "colourOf" in map_js and "map-pin--v${" in map_js)
+ok("the colour classes map.js can ask for all exist in CSS",
+   len(set(re.findall(r"\.map-pin--v(\d\d) \.map-pin__body", css)))
+   == int(re.search(r"COLOURS: (\d+),", map_js).group(1)))
+ok("the colour is a pure function of the code, not of arrival order",
+   "hash" in map_js and "charCodeAt" in map_js)
+ok("the legend shows the glyph, not a per-kind colour swatch",
+   ".map__legend-glyph" in css
+   and "map__legend-dot--tricycle" not in css)
+ok("each kind keeps its own pill colour",
+   all(re.search(r"\.map-pin--%s\s+\.map-pin__body \{ background:" % kind, css)
+       for kind in ("tricycle", "truck")))
 
 print("\n[11] map height is viewport-relative, not fixed pixels")
 ok("canvas height uses clamp()/vh", "clamp(360px, 44vh" in css)

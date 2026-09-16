@@ -1,0 +1,50 @@
+{% from 'partials/icons.html' import icon %}
+
+{# ===========================================================================
+   Full-screen image viewer.
+
+   Included once from base.html, so every page that can show a photo proof has
+   it. Nothing opens it but JavaScript: every trigger is a real <a href> to the
+   permission-checked image URL, so with scripting off the photo still opens
+   in the browser's own viewer. The lightbox is the enhancement, never the
+   only way in.
+
+   It sits above the modals (--z-lightbox) because a proof is usually opened
+   from inside the View Details dialog.
+   =========================================================================== #}
+
+<div class="lightbox" data-lightbox data-open="false" data-zoom="fit"
+     role="dialog" aria-modal="true" aria-label="Image viewer" aria-hidden="true">
+
+  <div class="lightbox__bar">
+    <p class="lightbox__caption" data-lightbox-caption>Image proof</p>
+
+    <div class="lightbox__actions">
+      <button type="button" class="lightbox__btn" data-lightbox-zoom
+              aria-pressed="false">
+        {{ icon('expand', 'icon--sm') }}
+        <span class="lightbox__btn-label" data-lightbox-zoom-label>Actual size</span>
+      </button>
+
+      <a class="lightbox__btn" data-lightbox-download download>
+        {{ icon('download', 'icon--sm') }}
+        <span class="lightbox__btn-label">Save</span>
+      </a>
+
+      <button type="button" class="lightbox__btn lightbox__btn--close"
+              data-lightbox-close aria-label="Close image viewer">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+  </div>
+
+  {# The stage scrolls when the image is shown at actual size; at fit size the
+     image is bounded by the stage and there is nothing to scroll. #}
+  <div class="lightbox__stage" data-lightbox-stage>
+    <img class="lightbox__img" data-lightbox-img alt="">
+  </div>
+
+  <p class="lightbox__hint" data-lightbox-hint>
+    Click the image to zoom · Esc to close
+  </p>
+</div>

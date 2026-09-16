@@ -209,7 +209,7 @@ def _carry_overs(days, barangay_id) -> dict:
     names = {b["id"]: b["name"] for b in storage.read("barangays")}
     wanted = {timeutil.date_str(d) for d in days}
 
-    rows, pending, closed = [], 0, 0
+    rows, open_rows, closed = [], 0, 0
     for row in storage.read("carry_overs"):
         if row.get("first_missed_date") not in wanted:
             continue
@@ -226,18 +226,20 @@ def _carry_overs(days, barangay_id) -> dict:
             row.get("missed_count", 1),
             row.get("status"),
         ])
-        if row.get("status") == "Pending":
-            pending += 1
-        else:
+        # Missed Collection and Pending are both still owed; only a
+        # collected row is finished.
+        if row.get("status") == "Collected":
             closed += 1
+        else:
+            open_rows += 1
 
     rows.sort(key=lambda r: (r[0], r[1]))
     return {
         "columns": columns, "rows": rows,
-        "totals": {"pending": pending, "closed": closed},
+        "totals": {"pending": open_rows, "closed": closed},
         "summary": [
             ("Carry-overs opened", len(rows)),
-            ("Still pending", pending),
+            ("Still outstanding", open_rows),
             ("Collected on a later run", closed),
         ],
     }

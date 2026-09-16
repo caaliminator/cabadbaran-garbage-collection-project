@@ -56,6 +56,82 @@ ICONS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Where a notification takes you
+#
+# Tapping an alert should land on the page that answers it: "carry-over
+# created" on the worklist where an admin reassigns it, "resident report" on
+# the page that shows the report. The destination therefore depends on who is
+# looking -- the same carry-over alert is a job for City Hall and an
+# explanation for the barangay whose MRF was missed.
+#
+# Resolved at read time from the notification's type rather than stored on the
+# row. An alert raised before this existed still links, and a renamed route is
+# one edit here instead of a data migration.
+#
+# A (type, role) pair with no entry is informational and renders as plain text
+# rather than as a link to somewhere unhelpful -- a collector has no schedule
+# page, so "schedule updated" stays text for them.
+# ---------------------------------------------------------------------------
+
+LINKS: dict[str, dict[str, str]] = {
+    TRUCK_APPROACHING:   {"city_admin": "city.tracking",
+                          "barangay_admin": "brgy.tracking",
+                          "truck_collector": "collector.truck_route"},
+    ARRIVAL_REMINDER:    {"city_admin": "city.mrf",
+                          "barangay_admin": "brgy.tracking",
+                          "truck_collector": "collector.truck_route",
+                          "tricycle_collector": "collector.tricycle_route"},
+    UNAVAILABLE_REQUEST: {"city_admin": "city.unavailability",
+                          "tricycle_collector": "collector.tricycle_unavailable",
+                          "truck_collector": "collector.truck_unavailable"},
+    ASSIGNMENT_CHANGED:  {"tricycle_collector": "collector.tricycle_route",
+                          "truck_collector": "collector.truck_route"},
+    CARRY_OVER_CREATED:  {"city_admin": "city.carry_over",
+                          "barangay_admin": "brgy.collections",
+                          "tricycle_collector": "collector.tricycle_list"},
+    PUBLIC_REPORT:       {"city_admin": "city.resident_reports",
+                          "barangay_admin": "brgy.reports",
+                          # The report names a household on this round, so the
+                          # collector's own property list is what answers it.
+                          "tricycle_collector": "collector.tricycle_list"},
+    DELIVERY_COMPLETED:  {"city_admin": "city.mrf",
+                          "truck_collector": "collector.truck_route"},
+    SCHEDULE_UPDATED:    {"city_admin": "city.schedule",
+                          "barangay_admin": "brgy.schedule",
+                          # Both route pages head with today's waste type,
+                          # which is exactly what a schedule change alters.
+                          "tricycle_collector": "collector.tricycle_route",
+                          "truck_collector": "collector.truck_route"},
+}
+
+# Pages that show one day at a time. Carrying the notification's own date means
+# an alert read the next morning opens the day it happened rather than today's
+# empty page.
+DATED_ENDPOINTS = frozenset({"city.mrf", "brgy.collections"})
+
+
+def link_for(row: dict, role: str | None) -> tuple[str, dict] | None:
+    """
+    Where tapping this notification should go, as (endpoint, url_for kwargs),
+    or None when there is nowhere useful to send this viewer.
+
+    An endpoint name rather than a URL, so this module stays free of Flask --
+    the template and the open route call `url_for` themselves.
+    """
+    if not role:
+        return None
+
+    endpoint = (LINKS.get(row.get("type")) or {}).get(role)
+    if not endpoint:
+        return None
+
+    kwargs = {}
+    if endpoint in DATED_ENDPOINTS and row.get("date"):
+        kwargs["date"] = row["date"]
+    return endpoint, kwargs
+
+
 def audiences_for(user: dict | None) -> list[str]:
     """Which audience tags a given viewer should receive."""
     if not user:
@@ -103,6 +179,7 @@ def for_user(user: dict | None, limit: int = 20,
              unread_only: bool = False) -> list[dict]:
     tags = set(audiences_for(user))
     viewer = (user or {}).get("id")
+    role = (user or {}).get("role")
 
     rows = []
     for row in storage.read("notifications"):
@@ -112,9 +189,14 @@ def for_user(user: dict | None, limit: int = 20,
         if unread_only and is_read:
             continue
         stamp = timeutil.parse_stamp(row.get("created_at"))
+        link = link_for(row, role)
         rows.append({
             **row,
             "unread": not is_read,
+            # Rendered as a link only when both are set. Templates read these
+            # rather than a URL because building one needs Flask.
+            "link_endpoint": link[0] if link else None,
+            "link_args": link[1] if link else {},
             "time_display": timeutil.display_time(stamp) if stamp else "",
             "date_display": timeutil.display_date(row.get("date")),
         })
@@ -127,6 +209,21 @@ def unread_count(user: dict | None) -> int:
     if not user:
         return 0
     return len(for_user(user, limit=999, unread_only=True))
+
+
+def open_for(notification_id: str, user: dict) -> tuple[str, dict] | None:
+    """
+    Mark one notification read for this viewer and say where it leads.
+
+    The audience check is the access control. A viewer can only touch an alert
+    that was addressed to them, so an id lifted from someone else's bell marks
+    nothing read and goes nowhere.
+    """
+    row = storage.get("notifications", notification_id)
+    if not row or row.get("audience") not in set(audiences_for(user)):
+        return None
+    mark_read(notification_id, user["id"])
+    return link_for(row, user.get("role"))
 
 
 def mark_read(notification_id: str, user_id: str) -> dict | None:

@@ -1,7 +1,8 @@
 {% extends 'shell.html' %}
 {% from 'partials/icons.html' import icon %}
 {% from 'partials/macros.html' import stat, status, search_input, filter_select,
-                                      th, empty, select, radios %}
+                                      th, empty, select, radios,
+                                      assign_options %}
 
 {% block page %}
 
@@ -61,17 +62,33 @@
     <form class="card__body form" method="post" data-validate novalidate>
       {{ csrf_field() }}
 
-      <div class="form__grid">
+      {% if replacing %}
+        <div class="notice" role="status">
+          {{ icon('alert', 'icon--sm') }}
+          <div>
+            <p class="strong">
+              Covering {{ replacing.user_name }}'s approved absence
+            </p>
+            <p class="text-sm">
+              {{ replacing.affected_display }}{% if replacing.unavailable_until %} to {{ replacing.until_display }}{% endif %}
+              · {{ replacing.reason }}. The dates and status below are prefilled
+              from that request, and saving records this assignment against it.
+            </p>
+          </div>
+        </div>
+        <input type="hidden" name="replace_request_id" value="{{ replacing.id }}">
+      {% endif %}
+
+      {# Four fields: 2x2 rather than 3 + a stranded one. #}
+      <div class="form__grid form__grid--2">
         <div class="field">
           <label class="field__label" for="operator_id">
             Select Truck Operator<span class="field__req" aria-hidden="true">*</span>
             <span class="sr-only">(required)</span>
           </label>
           <select class="field__select" id="operator_id" name="operator_id" required>
-            <option value="">Select operator…</option>
-            {% for o in operators %}
-              <option value="{{ o.id }}">{{ o.full_name }} ({{ o.username }})</option>
-            {% endfor %}
+            {{ assign_options(operators, 'id', 'full_name',
+                              placeholder='Select operator…', sub='username') }}
           </select>
         </div>
 
@@ -83,10 +100,12 @@
           <select class="field__select" id="truck_code" name="truck_code" required
                   aria-describedby="truck-hint">
             <option value="">Select truck…</option>
-            {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+            {{ assign_options(trucks, 'code', 'code') }}
           </select>
           <p class="field__hint" id="truck-hint">
-            {{ trucks|length }} of {{ counts.max_trucks }} units free.
+            {% set free = trucks | rejectattr('assigned') | list | length %}
+            {{ free }} of {{ counts.max_trucks }} units free. Units already on a
+            route are listed but cannot be picked.
           </p>
         </div>
 
@@ -96,7 +115,8 @@
             <span class="sr-only">(required)</span>
           </label>
           <input class="field__input" type="date" id="effective_date" name="effective_date"
-                 required value="{{ now.strftime('%Y-%m-%d') }}"
+                 required
+                 value="{{ replacing.affected_date if replacing else now.strftime('%Y-%m-%d') }}"
                  aria-describedby="effective-hint">
           <p class="field__hint" id="effective-hint">
             The day this operator starts working the route. A future date is
@@ -104,7 +124,26 @@
           </p>
         </div>
 
-        {{ radios('status', 'Status', ['Active', 'Temporary Replacement'], required=True) }}
+        {{ radios('status', 'Status', ['Active', 'Temporary Replacement'],
+                  required=True,
+                  checked='Temporary Replacement' if replacing else None) }}
+
+        {# Only meaningful for a Temporary Replacement; RoleFields in app.js
+           shows and requires it when that status is picked. #}
+        <div class="field" data-until-field hidden>
+          <label class="field__label" for="until_date">
+            Replacement Until<span class="field__req" aria-hidden="true">*</span>
+            <span class="sr-only">(required for a temporary replacement)</span>
+          </label>
+          <input class="field__input" type="date" id="until_date" name="until_date"
+                 value="{{ replacing.unavailable_until or replacing.affected_date if replacing else '' }}"
+                 aria-describedby="until-hint">
+          <p class="field__hint" id="until-hint">
+            The stand-in's last day on this route. After it the assignment
+            stops counting as active and the route returns to its usual
+            operator.
+          </p>
+        </div>
       </div>
 
       {# Covered MRFs as checkboxes rather than a multi-select: "hold Ctrl to
@@ -146,7 +185,7 @@
                   placeholder="Maintenance window, temporary cover…"></textarea>
       </div>
 
-      <div class="row row--end">
+      <div class="form__actions">
         <button type="reset" class="btn btn--ghost">Clear</button>
         <button type="submit" class="btn btn--primary">{{ icon('check', 'icon--sm') }} Save</button>
       </div>
@@ -169,14 +208,14 @@
         <caption class="sr-only">Current truck operator assignments</caption>
         <thead>
           <tr>
-            {{ th('Truck Operator', 'operator') }}
-            {{ th('Username') }}
-            {{ th('Covered Barangay MRF') }}
-            {{ th('Assigned Truck', 'truck') }}
-            {{ th('Effective From', 'effective') }}
-            {{ th('Availability', 'availability') }}
-            {{ th('Status', 'status') }}
-            <th scope="col" class="table__actions"><span class="sr-only">Actions</span></th>
+            {{ th('Truck Operator', 'operator', w='14%') }}
+            {{ th('Username', w='13%') }}
+            {{ th('Covered Barangay MRF', w='17%') }}
+            {{ th('Assigned Truck', 'truck', w='10%') }}
+            {{ th('Effective From', 'effective', w='12%') }}
+            {{ th('Availability', 'availability', w='11%') }}
+            {{ th('Status', 'status', w='13%') }}
+            <th scope="col" style="width:112px" class="table__actions"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -195,8 +234,14 @@
               <td data-label="Truck"><span class="mono">{{ r.truck }}</span></td>
               <td data-label="Effective From">
                 {{ r.effective_display }}
+                {% if r.until_date %}
+                  <span class="sub">until {{ r.until_display }}</span>
+                {% endif %}
                 {% if r.pending_start %}
                   <span class="badge badge--info">Scheduled</span>
+                {% endif %}
+                {% if r.expired %}
+                  <span class="badge badge--muted">Ended</span>
                 {% endif %}
               </td>
               <td data-label="Availability">{{ status(r.availability) }}</td>
@@ -210,6 +255,7 @@
                           data-set-mrfs="{{ r.mrfs|join(', ') or 'None' }}"
                           data-set-times="{% for b, t in r.planned_pickup_times.items() %}{{ t }}{% if not loop.last %}, {% endif %}{% else %}Not set{% endfor %}"
                           data-set-effective="{{ r.effective_display }}"
+                          data-set-until="{{ r.until_display }}"
                           data-set-availability="{{ r.availability }}"
                           data-set-status="{{ r.status }}"
                           data-set-note="{{ r.note or 'No notes recorded.' }}"
@@ -224,6 +270,7 @@
                           data-set-operator_id="{{ r.operator_id }}"
                           data-set-truck_code="{{ r.truck }}"
                           data-set-effective_date="{{ r.effective_date }}"
+                          data-set-until_date="{{ r.until_date }}"
                           data-set-status="{{ r.status }}"
                           data-set-note="{{ r.note }}"
                           data-set-mrfs="{{ r.mrf_ids|join(',') }}"
@@ -264,6 +311,7 @@
       <div class="grid grid--2">
         <div class="kv"><span class="kv__key">Assigned Truck</span><span class="kv__val mono" data-fill="truck">—</span></div>
         <div class="kv"><span class="kv__key">Effective From</span><span class="kv__val" data-fill="effective">—</span></div>
+        <div class="kv"><span class="kv__key">Replacement Until</span><span class="kv__val" data-fill="until">—</span></div>
         <div class="kv"><span class="kv__key">Availability</span><span class="kv__val" data-fill="availability">—</span></div>
         <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
         <div class="kv"><span class="kv__key">Planned Times</span><span class="kv__val" data-fill="times">—</span></div>
@@ -293,13 +341,11 @@
 
     <div class="modal__body stack">
       <div class="form__grid form__grid--2">
-        <div class="field">
+        <div class="field field--wide">
           <label class="field__label" for="edit_operator_id">Truck Operator</label>
           <select class="field__select" id="edit_operator_id" name="operator_id"
                   required data-fill-value="operator_id">
-            {% for o in operators %}
-              <option value="{{ o.id }}">{{ o.full_name }} ({{ o.username }})</option>
-            {% endfor %}
+            {{ assign_options(operators, 'id', 'full_name', sub='username') }}
           </select>
         </div>
 
@@ -307,7 +353,7 @@
           <label class="field__label" for="edit_truck_code">Assigned Truck</label>
           <select class="field__select" id="edit_truck_code" name="truck_code"
                   required data-fill-value="truck_code">
-            {% for code in trucks %}<option value="{{ code }}">{{ code }}</option>{% endfor %}
+            {{ assign_options(trucks, 'code', 'code') }}
           </select>
         </div>
 
@@ -323,6 +369,13 @@
                   required data-fill-value="status">
             {% for s in statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
           </select>
+        </div>
+
+        <div class="field" data-until-field hidden>
+          <label class="field__label" for="edit_trk_until_date">Replacement Until</label>
+          <input class="field__input" type="date" id="edit_trk_until_date"
+                 name="until_date" data-fill-value="until_date">
+          <p class="field__hint">The stand-in's last day on this route.</p>
         </div>
       </div>
 

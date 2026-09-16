@@ -104,6 +104,14 @@ def freeze(date, actor: str = "system") -> list[dict]:
     if not day or day >= timeutil.today_str():
         return []
 
+    # A day the system held nothing on is not worth preserving. Freezing
+    # exists so reported figures cannot silently change, and there were no
+    # figures -- writing one empty row per barangay would only bury the real
+    # history under rows that never meant anything. Unfrozen days still show
+    # on the History pages; summary_for computes them live.
+    if _nothing_happened(compute(day, None)):
+        return []
+
     written = []
     scopes = [None] + [b["id"] for b in storage.read("barangays")]
     for barangay_id in scopes:
@@ -111,6 +119,22 @@ def freeze(date, actor: str = "system") -> list[dict]:
             continue
         written.append(storage.insert("history", compute(day, barangay_id), actor))
     return written
+
+
+def _nothing_happened(summary: dict) -> bool:
+    """
+    Nothing dated to that day: no collection entry, no MRF pickup, no delivery.
+
+    The property count is deliberately not part of this. A property carries no
+    date, so `compute` counts today's properties against any past day -- which
+    means a day before the register existed would freeze as "0 of 10
+    collected, 0%", reading as a total collection failure rather than as a day
+    the system was not in use. Only dated records can say a day happened.
+    """
+    return (not summary["entries"]
+            and not summary["mrf"]["collected"]
+            and not summary["mrf"]["missed"]
+            and not summary["deliveries"]["count"])
 
 
 def ensure_frozen(actor: str = "system", look_back_days: int = 14) -> list[dict]:

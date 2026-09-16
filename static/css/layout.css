@@ -307,7 +307,12 @@
 }
 
 @media (max-width: 760px) {
-  .topbar { min-height: 60px; padding-inline: var(--sp-3); }
+  /* The token, not a hardcoded height on .topbar: everything that lines up
+     with the topbar reads it -- the rail brand, and the notification sheet
+     that hangs below it. */
+  :root { --topbar-h: 60px; }
+
+  .topbar { padding-inline: var(--sp-3); }
   .topbar__day { font-size: var(--text-md); }
   .topbar__type { font-size: var(--text-xs); }
 

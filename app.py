@@ -178,6 +178,16 @@ def create_app():
                 # down; the next request tries again.
                 app.logger.exception("End-of-day summary failed")
 
+            # The midnight reset rides the same hook. Collection status is
+            # date-keyed and resets itself; what this clears is the state that
+            # is not dated -- a collector left On Duty overnight. See
+            # services/rollover_service.py for what is and is not reset.
+            try:
+                from services import rollover_service
+                rollover_service.run()
+            except Exception:
+                app.logger.exception("Daily rollover failed")
+
             # The T-2h arrival reminders ride along on the same lazy check,
             # for the same reason: no scheduler, and it still fires correctly
             # after the server has been switched off.
@@ -212,6 +222,7 @@ def create_app():
         "Active": "success",
         "Available": "success",
         "Pending": "warning",
+        "Missed Collection": "danger",
         "Temporary Replacement": "warning",
         "Not Collected": "danger",
         "Missed Pickup": "danger",
@@ -302,6 +313,17 @@ def create_app():
                                title="Page not found",
                                message="The page you are looking for does not exist "
                                        "or may have been moved."), 404
+
+    @app.errorhandler(413)
+    def payload_too_large(_):
+        from flask import render_template
+        megabytes = config.Config.MAX_PROOF_BYTES // (1024 * 1024)
+        return render_template("error.html", code=413,
+                               title="That file is too large",
+                               message=f"Photos must be under {megabytes} MB. "
+                                       f"Take the picture again at a smaller "
+                                       f"size, or send the report without "
+                                       f"one."), 413
 
     @app.errorhandler(500)
     def server_error(_):

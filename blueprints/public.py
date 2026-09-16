@@ -118,10 +118,14 @@ def report():
 
     barangay_id = request.form.get("barangay_id") or request.args.get("barangay") or ""
     purok = request.form.get("purok") or request.args.get("purok") or ""
+    # The no-JS path posts the form to re-narrow the list, so the search has to
+    # be read from either side -- args alone lost it on every Continue.
+    search = request.form.get("search") or request.args.get("search") or ""
 
     if request.method == "POST" and request.form.get("action") == "submit":
         try:
-            saved = public_report_service.submit(request.form, ip, fingerprint)
+            saved = public_report_service.submit(request.form, ip, fingerprint,
+                                                 files=request.files)
         except ValidationError as exc:
             for message in exc.errors.values():
                 flash(message, "danger")
@@ -143,9 +147,10 @@ def report():
         barangays=public_report_service.barangay_options(),
         puroks=public_report_service.purok_options(barangay_id),
         properties=public_report_service.property_options(
-            barangay_id, purok, request.args.get("search", "")),
+            barangay_id, purok, search),
         selected_barangay=barangay_id,
         selected_purok=purok,
+        selected_search=search,
         remaining=public_report_service.remaining_today(ip, fingerprint),
         limit=Config.PUBLIC_REPORT_DAILY_LIMIT,
     )

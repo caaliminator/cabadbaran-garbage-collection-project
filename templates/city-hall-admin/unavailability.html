@@ -1,0 +1,272 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, search_input, th, empty %}
+
+{% block page %}
+
+<div class="page__head">
+  <div>
+    <h1 class="page__title">Unavailability</h1>
+    <p class="page__sub">
+      "Unavailable for Duty" requests from tricycle and truck collectors.
+      Approve or reject each one, then assign a temporary replacement to cover
+      the route.
+    </p>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="Unavailability summary">
+  {% set tones = ['warning', 'info', 'danger', 'muted'] %}
+  {% for label, value, hint, ico in stats %}
+    {{ stat(label, value, hint, ico, tones[loop.index0]) }}
+  {% endfor %}
+</section>
+
+{% if counts.unassigned %}
+  <div class="notice" role="status">
+    {{ icon('alert', 'icon--sm') }}
+    <div>
+      <p class="strong">
+        {{ counts.unassigned }} approved absence{{ '' if counts.unassigned == 1 else 's' }}
+        today with no replacement
+      </p>
+      <p class="text-sm">
+        Nobody is covering those routes. Use <span class="strong">Assign
+        replacement</span> on the row to put a stand-in on it.
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+<section class="card" data-table-controller="unavailTable">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Requests</h2>
+
+    {# Links rather than a client-side filter: status is applied server-side so
+       a filtered view is a URL the admin can keep. #}
+    <div class="segmented" role="tablist" aria-label="Request status">
+      <a class="segmented__btn" role="tab"
+         href="{{ url_for('city.unavailability') }}"
+         aria-selected="{{ 'true' if not selected_status else 'false' }}">
+        All <span class="sub">{{ counts.total }}</span>
+      </a>
+      {% for s in statuses %}
+        <a class="segmented__btn" role="tab"
+           href="{{ url_for('city.unavailability', status=s) }}"
+           aria-selected="{{ 'true' if selected_status == s else 'false' }}">
+          {{ s }}
+          <span class="sub">
+            {{ counts.pending if s == 'Pending' else counts.approved if s == 'Approved' else counts.rejected }}
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+
+    {{ search_input('Search collector', 'unavail-search') }}
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="unavailTable">
+      <caption class="sr-only">
+        Unavailability requests, the decision taken, and the replacement covering each
+      </caption>
+      <thead>
+        <tr>
+          {{ th('Collector', 'collector', w='18%') }}
+          {{ th('Role', w='12%') }}
+          {{ th('Dates', 'dates', w='16%') }}
+          {{ th('Reason', w='14%') }}
+          {{ th('Status', 'status', w='13%') }}
+          {{ th('Replacement', w='17%') }}
+          <th scope="col" style="width:232px" class="table__actions">
+            <span class="sr-only">Actions</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-collector="{{ r.user_name }}" data-status="{{ r.status }}"
+              data-dates="{{ r.affected_date }}">
+            <td data-label="Collector">
+              <span class="strong">{{ r.user_name or 'Deleted account' }}</span>
+              {% if r.covers_today and r.blocking %}
+                <span class="sub">Off duty today</span>
+              {% endif %}
+            </td>
+            <td data-label="Role">{{ r.role_label or '—' }}</td>
+            <td data-label="Dates">
+              {{ r.affected_display }}
+              <span class="sub">
+                {% if r.unavailable_until %}
+                  to {{ r.until_display }} · {{ r.days }} day{{ '' if r.days == 1 else 's' }}
+                {% else %}
+                  Same day only
+                {% endif %}
+              </span>
+            </td>
+            <td data-label="Reason">{{ r.reason or '—' }}</td>
+            <td data-label="Status">
+              {{ status(r.status) }}
+              {% if r.expired and r.status == 'Pending' %}
+                <span class="badge badge--muted">Dates passed</span>
+              {% endif %}
+            </td>
+            <td data-label="Replacement">
+              {% if r.replacement_detail %}
+                <span class="strong">{{ r.replacement_detail.name }}</span>
+                <span class="sub mono">{{ r.replacement_detail.vehicle }}</span>
+              {% elif r.status == 'Approved' %}
+                <span class="badge badge--warning">Not assigned</span>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td class="table__actions">
+              <div class="actions">
+                <button type="button" class="btn btn--icon"
+                        data-modal-open="unavail-detail"
+                        data-set-name="{{ r.user_name }}"
+                        data-set-role="{{ r.role_label }}"
+                        data-set-dates="{{ r.affected_display }}{% if r.unavailable_until %} — {{ r.until_display }}{% endif %}"
+                        data-set-days="{{ r.days }} day{{ '' if r.days == 1 else 's' }}"
+                        data-set-reason="{{ r.reason or '—' }}"
+                        data-set-notes="{{ r.notes or 'No notes given.' }}"
+                        data-set-status="{{ r.status }}"
+                        data-set-decidedby="{{ r.decided_by_name }}"
+                        data-set-decidedat="{{ r.decided_display }}"
+                        data-set-decisionnote="{{ r.decision_note or '—' }}"
+                        data-set-replacement="{% if r.replacement_detail %}{{ r.replacement_detail.name }} · {{ r.replacement_detail.vehicle }} ({{ r.replacement_detail.from_display }} — {{ r.replacement_detail.until_display }}){% else %}No replacement assigned{% endif %}"
+                        aria-label="View request from {{ r.user_name }}">
+                  {{ icon('eye', 'icon--sm') }}
+                </button>
+
+                {% if r.status == 'Pending' %}
+                  <button type="button" class="btn btn--secondary btn--sm"
+                          data-modal-open="unavail-decide"
+                          data-set-id="{{ r.id }}"
+                          data-set-who="{{ r.user_name }}"
+                          data-set-when="{{ r.affected_display }}"
+                          data-set-action="approve"
+                          aria-label="Approve request from {{ r.user_name }}">
+                    Approve
+                  </button>
+                  <button type="button" class="btn btn--secondary btn--sm"
+                          data-modal-open="unavail-decide"
+                          data-set-id="{{ r.id }}"
+                          data-set-who="{{ r.user_name }}"
+                          data-set-when="{{ r.affected_display }}"
+                          data-set-action="reject"
+                          aria-label="Reject request from {{ r.user_name }}">
+                    Reject
+                  </button>
+                {% elif r.status == 'Approved' and not r.replacement_detail %}
+                  {# Straight into the assignment form for the right vehicle
+                     type, prefilled from this request. #}
+                  <a class="btn btn--secondary btn--sm"
+                     href="{{ url_for('city.tricycle' if r.role == 'tricycle_collector' else 'city.truck', replace=r.id) }}">
+                    Assign replacement
+                  </a>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if rows %}hidden{% endif %}>
+    {{ empty('No requests',
+             'When a collector files "Unavailable for Duty", it appears here for a decision.',
+             'check') }}
+  </div>
+
+  <div class="card__foot">
+    <span class="text-xs muted" data-table-count></span>
+    <span class="text-xs muted">
+      A collector reads as Unavailable while a request is pending or approved.
+    </span>
+  </div>
+</section>
+
+{# ---- Detail dialog ----------------------------------------------------- #}
+<div class="modal" id="unavail-detail" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="unavail-detail-title" aria-hidden="true">
+  <div class="modal__panel">
+    <div class="modal__head">
+      <div>
+        <h2 id="unavail-detail-title" data-fill="name">Request</h2>
+        <p class="text-sm muted" data-fill="role">—</p>
+      </div>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body stack">
+      <div class="grid grid--2">
+        <div class="kv"><span class="kv__key">Dates</span><span class="kv__val" data-fill="dates">—</span></div>
+        <div class="kv"><span class="kv__key">Duration</span><span class="kv__val" data-fill="days">—</span></div>
+        <div class="kv"><span class="kv__key">Reason</span><span class="kv__val" data-fill="reason">—</span></div>
+        <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
+        <div class="kv"><span class="kv__key">Decided by</span><span class="kv__val" data-fill="decidedby">—</span></div>
+        <div class="kv"><span class="kv__key">Decided on</span><span class="kv__val" data-fill="decidedat">—</span></div>
+      </div>
+      <div class="kv">
+        <span class="kv__key">Collector's notes</span>
+        <span class="kv__val text-sm" data-fill="notes">—</span>
+      </div>
+      <div class="kv">
+        <span class="kv__key">Decision note</span>
+        <span class="kv__val text-sm" data-fill="decisionnote">—</span>
+      </div>
+      <div class="kv">
+        <span class="kv__key">Replacement</span>
+        <span class="kv__val text-sm" data-fill="replacement">—</span>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
+    </div>
+  </div>
+</div>
+
+{# ---- Approve / reject -------------------------------------------------- #}
+<div class="modal" id="unavail-decide" data-open="false" role="dialog"
+     aria-modal="true" aria-labelledby="unavail-decide-title" aria-hidden="true">
+  <form class="modal__panel" method="post" data-validate novalidate>
+    {{ csrf_field() }}
+    <input type="hidden" name="id" data-fill-value="id">
+    <input type="hidden" name="action" data-fill-value="action">
+    <div class="modal__head">
+      <h2 id="unavail-decide-title">
+        Decide on <span data-fill="who">this request</span>
+      </h2>
+      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
+        {{ icon('x', 'icon--sm') }}
+      </button>
+    </div>
+    <div class="modal__body stack">
+      <p class="text-sm">
+        Affected from <span class="strong" data-fill="when">—</span>.
+        Approving takes them off the route for those dates; rejecting leaves
+        them on it. Either way the collector is notified.
+      </p>
+      <div class="field">
+        <label class="field__label" for="decision_note">
+          Note <span class="muted">(optional)</span>
+        </label>
+        <textarea class="field__textarea" id="decision_note" name="decision_note"
+                  maxlength="500"
+                  placeholder="Sent to the collector with the decision."></textarea>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--secondary" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn--primary">
+        {{ icon('check', 'icon--sm') }} Confirm
+      </button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

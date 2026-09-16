@@ -20,7 +20,7 @@ import secrets
 from pathlib import Path
 
 from config import Config
-from services import schedule_service, storage, timeutil
+from services import property_service, schedule_service, storage, timeutil
 from services.validation import ValidationError, Validator
 
 COLLECTED = "Collected"
@@ -41,6 +41,7 @@ NOT_COLLECTED_REASONS = (
     "Road inaccessible",
     "Has special/hazardous waste",
     "No one at home",
+    "Nothing expected (property tag)",
     "Other",
 )
 
@@ -77,13 +78,22 @@ def route_with_status(properties: list[dict], date=None) -> list[dict]:
     """
     day = timeutil.date_str(date or timeutil.today())
     entries = {e["property_id"]: e for e in storage.find("collections", date=day)}
+    # One lookup for the whole route: every property is judged against the
+    # same day's schedule.
+    waste_type = (schedule_service.for_date(day) or {}).get("waste_type")
 
     out = []
     for prop in properties:
         entry = entries.get(prop["id"])
+        note = property_service.exemption_for(prop.get("tag"), waste_type)
         out.append({
             **prop,
             "status": entry.get("status", PENDING) if entry else PENDING,
+            # Exempt only while nothing has been recorded. If the household put
+            # waste out anyway and the collector took it, that is a real stop
+            # and it counts like any other.
+            "exempt": bool(note) and not entry,
+            "exempt_note": note or "",
             "entry": entry,
             "entry_id": entry["id"] if entry else None,
             "time": timeutil.display_time(timeutil.parse_stamp(entry["timestamp"]))
@@ -98,18 +108,29 @@ def route_with_status(properties: list[dict], date=None) -> list[dict]:
 
 
 def counts(properties: list[dict], date=None) -> dict:
-    """Collected / Pending / Not Collected against the registered total."""
+    """
+    Collected / Pending / Not Collected against what today actually asks for.
+
+    `total` is every registered property; `expected` is the ones today's
+    schedule expects something from. A composting household on a biodegradable
+    day is in the first and not the second, so it neither sits Pending nor
+    drags the percentage down -- see property_service.TAG_EXEMPTIONS.
+    """
     rows = route_with_status(properties, date)
     collected = sum(1 for r in rows if r["status"] == COLLECTED)
     not_collected = sum(1 for r in rows if r["status"] == NOT_COLLECTED)
     total = len(rows)
+    exempt = sum(1 for r in rows if r["exempt"])
+    expected = total - exempt
     return {
         "total": total,
+        "expected": expected,
+        "exempt": exempt,
         "collected": collected,
         "not_collected": not_collected,
-        "pending": total - collected - not_collected,
+        "pending": expected - collected - not_collected,
         "disputed": sum(1 for r in rows if r["disputed"]),
-        "percent": round(collected / total * 100) if total else 0,
+        "percent": round(collected / expected * 100) if expected else 0,
     }
 
 
@@ -250,10 +271,12 @@ def save_entry(form, files, property_record: dict, collector: dict,
             v.fail("waste", "Record at least one waste quantity greater than zero.")
     else:
         v.choice("reason", "Reason", NOT_COLLECTED_REASONS)
-        # Where, in words. The GPS fix is optional -- it needs a signal and a
-        # deliberate tap -- so on its own it leaves plenty of refusals with no
-        # location at all. This is the half that is always answerable.
-        v.text("location", "Location", required=True, max_length=160)
+        # No written location is asked for. The entry already names the
+        # property, and a property is a registered household or establishment
+        # with a barangay and a purok -- so "where" is answered before the
+        # collector types anything. The optional GPS fix still records that
+        # they were physically at the stop, which the property record cannot
+        # say by itself.
         # Spec 6.4 requires photo evidence for a household refusal: it is what
         # the barangay admin reviews when a resident disputes the entry.
         upload = files.get("proof") if files else None
@@ -262,7 +285,13 @@ def save_entry(form, files, property_record: dict, collector: dict,
                 proof_path = save_proof(upload, day)
             except ValidationError as exc:
                 v.errors.update(exc.errors)
-        elif not proof_path:
+        elif not proof_path and not property_service.exemption_for(
+                property_record.get("tag"),
+                (schedule_service.for_date(day) or {}).get("waste_type")):
+            # Waived when the property's tag says nothing was expected today:
+            # the photo exists so an admin can review a refusal, and there is
+            # nothing to photograph at a gate that was never going to have
+            # waste at it.
             v.fail("proof", "An image proof is required for a not-collected entry.")
 
     v.raise_if_invalid()
@@ -279,7 +308,6 @@ def save_entry(form, files, property_record: dict, collector: dict,
         "timestamp": timeutil.stamp(),
         "waste": waste,
         "reason": v.data.get("reason", "") if status == NOT_COLLECTED else "",
-        "location": v.data.get("location", "") if status == NOT_COLLECTED else "",
         "image_proof_path": proof_path if status == NOT_COLLECTED else None,
         "note": v.data["note"],
         "source": SOURCE_COLLECTOR,
@@ -417,6 +445,39 @@ def proof_path(relative: str) -> Path | None:
 def proof_mimetype(path: Path) -> str:
     guessed, _ = mimetypes.guess_type(str(path))
     return guessed or "application/octet-stream"
+
+
+def proof_owner(relative: str) -> dict | None:
+    """
+    The record a stored photo belongs to, whichever kind filed it.
+
+    A photo is only reachable through a record that references it, so a file
+    left on disk with nothing pointing at it cannot be served at all.
+
+    Returns something `may_view_proof` understands.
+
+    A collector's own proof resolves to their entry, so they keep access to it.
+    A *resident's* photo resolves to a stand-in carrying only the barangay and
+    `collector_id: None`, which denies every collector -- including the one
+    whose entry it disputes. The public form promises the photo goes to the
+    barangay admin and the city and nowhere else, and returning the entry
+    itself would quietly hand it to the collector being disputed.
+    """
+    if not relative:
+        return None
+
+    entry = storage.find_one("collections", image_proof_path=relative)
+    if entry:
+        return entry
+
+    entry = storage.find_one("collections", resident_proof_path=relative)
+    if entry:
+        return {"barangay_id": entry.get("barangay_id"), "collector_id": None}
+
+    report = storage.find_one("public_reports", image_proof_path=relative)
+    if report:
+        return {"barangay_id": report.get("barangay_id"), "collector_id": None}
+    return None
 
 
 def may_view_proof(entry: dict, user: dict) -> bool:

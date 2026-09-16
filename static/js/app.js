@@ -197,16 +197,56 @@
             }
 
             modal.querySelectorAll(`[data-fill-value="${name}"]`).forEach((input) => {
+              // An assign dropdown disables whoever is already taken. The row
+              // being edited holds one of those, and it is legitimately
+              // selectable *for this row* -- so re-enable its own option
+              // before selecting it, or the dialog opens showing a value the
+              // user cannot pick again after changing their mind.
+              if (input.tagName === 'SELECT') {
+                const own = [...input.options].find((o) => o.value === value);
+                if (own) own.disabled = false;
+              }
               input.value = value;
               // Selects rebuilt by RoleFields need the change event to re-run.
               input.dispatchEvent(new Event('change', { bubbles: true }));
             });
           });
 
+          // Rows that only belong to one kind of record: data-show-when
+          // ="field:value" shows the row when the trigger set that field to
+          // that value, and hides it otherwise. An empty value means "only
+          // when the field was not set" -- which is how one MRF dialog shows
+          // either a single Assigned Truck or the original/current pair,
+          // without needing two dialogs that would then have to be kept in
+          // step with each other.
+          const seeded = (field) =>
+            btn.dataset['set' + field.charAt(0).toUpperCase() + field.slice(1)] || '';
+
+          modal.querySelectorAll('[data-show-when]').forEach((node) => {
+            const [field, want = ''] = node.dataset.showWhen.split(':');
+            node.hidden = seeded(field) !== want;
+          });
+
+          // The open-ended version: show the row whenever the field has
+          // anything in it at all. A note that only exists sometimes -- what a
+          // carry-over is still waiting for -- would otherwise leave an empty
+          // line behind on every record that is not waiting for anything.
+          modal.querySelectorAll('[data-show-when-set]').forEach((node) => {
+            node.hidden = !seeded(node.dataset.showWhenSet);
+          });
+
           // Role-dependent fields must reflect the seeded role, not the last
           // state the dialog was left in.
           modal.querySelectorAll('[data-user-form]').forEach((f) => RoleFields.sync(f));
           if (modal.matches('[data-user-form]')) RoleFields.sync(modal);
+
+          // Anything else that derives from the seeded values -- the
+          // "Replacement Until" field keys off the Status that was just set.
+          modal.querySelectorAll('form').forEach((f) =>
+            f.dispatchEvent(new CustomEvent('gcts:filled')));
+          if (modal.tagName === 'FORM') {
+            modal.dispatchEvent(new CustomEvent('gcts:filled'));
+          }
 
           // An image proof only exists on some entries, so its block is
           // hidden rather than left showing a broken image.
@@ -244,6 +284,12 @@
 
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
+        // A photo proof is opened from inside this dialog and sits on top of
+        // it. One press closes the photo and nothing else -- the admin is
+        // still reading the entry underneath. Checked here rather than
+        // stopped from the lightbox's own handler, because this listener is
+        // registered first and stopImmediatePropagation cannot reach back.
+        if (Lightbox.isOpen()) return;
         const open = $('.modal[data-open="true"]');
         if (open) this.close(open);
       });
@@ -265,6 +311,164 @@
       modal.setAttribute('aria-hidden', 'true');
       root.style.overflow = '';
       if (this.lastFocus) { this.lastFocus.focus(); this.lastFocus = null; }
+    },
+  };
+
+  /* ======================================================================
+     LIGHTBOX -- click a photo proof to see it full screen, click again to
+     zoom to actual size.
+
+     Every trigger is a real <a href> to the image, so with scripting off the
+     photo still opens in the browser's own viewer. This intercepts the click
+     and shows it in place instead, which matters most inside the View Details
+     dialog: following the link there throws away the dialog and the row the
+     admin was looking at.
+
+     Triggers are found by delegation rather than bound up front, because the
+     proof <img> in the entry dialog has its src swapped in each time a row is
+     opened, and a proof link can sit in a table a filter has just redrawn.
+     ====================================================================== */
+
+  const Lightbox = {
+    box: null,
+
+    init() {
+      this.box = $('[data-lightbox]');
+      if (!this.box) return;
+
+      this.img      = $('[data-lightbox-img]', this.box);
+      this.caption  = $('[data-lightbox-caption]', this.box);
+      this.stage    = $('[data-lightbox-stage]', this.box);
+      this.download = $('[data-lightbox-download]', this.box);
+      this.zoomBtn  = $('[data-lightbox-zoom]', this.box);
+      this.zoomText = $('[data-lightbox-zoom-label]', this.box);
+      this.hint     = $('[data-lightbox-hint]', this.box);
+
+      document.addEventListener('click', (e) => {
+        const trigger = e.target.closest('[data-zoomable], [data-zoom-src]');
+        if (!trigger) return;
+        const src = trigger.dataset.zoomSrc
+                 || trigger.getAttribute('href')
+                 || trigger.currentSrc
+                 || trigger.src;
+        if (!src) return;
+        e.preventDefault();
+        this.open(src, this.captionFor(trigger));
+      });
+
+      // An <img> is not focusable and takes no Enter key, so a zoomable one is
+      // given a button's keyboard behaviour to match the pointer's.
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const el = document.activeElement;
+        if (!el || el.tagName !== 'IMG' || !el.matches('[data-zoomable]')) return;
+        e.preventDefault();
+        this.open(el.currentSrc || el.src, this.captionFor(el));
+      });
+
+      // Whether zooming can do anything depends on the photo: one smaller than
+      // the stage is already at 100%, and "Actual size" would change nothing.
+      // Only measurable once the file has decoded.
+      this.img.addEventListener('load', () => this.measure());
+
+      this.img.addEventListener('click', () => {
+        if (this.canZoom) this.toggleZoom();
+      });
+      this.zoomBtn.addEventListener('click', () => this.toggleZoom());
+
+      $('[data-lightbox-close]', this.box)
+        .addEventListener('click', () => this.close());
+
+      // Backdrop only: a click that lands on the image, the bar or a button
+      // has already been handled by whatever it landed on.
+      this.box.addEventListener('click', (e) => {
+        if (e.target === this.box || e.target === this.stage) this.close();
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && this.isOpen()) this.close();
+      });
+    },
+
+    isOpen() { return this.box && this.box.dataset.open === 'true'; },
+
+    captionFor(trigger) {
+      return trigger.dataset.zoomCaption
+          || trigger.getAttribute('alt')
+          || trigger.textContent.trim()
+          || 'Image proof';
+    },
+
+    open(src, caption) {
+      this.lastFocus = document.activeElement;
+      this.img.src = src;
+      this.img.alt = caption;
+      this.caption.textContent = caption;
+      this.download.href = src;
+      // Assume zoomable until the loaded photo says otherwise; `measure()`
+      // corrects it, and a stale answer from the previous photo would
+      // disable the control on one that needs it.
+      this.canZoom = true;
+      this.setZoom('fit');
+
+      // Restored on close rather than blanked: the dialog underneath may have
+      // locked scrolling, and closing the photo must not unlock it.
+      this.prevOverflow = root.style.overflow;
+      root.style.overflow = 'hidden';
+
+      this.box.dataset.open = 'true';
+      this.box.removeAttribute('aria-hidden');
+      setTimeout(() => this.zoomBtn.focus(), 60);
+    },
+
+    close() {
+      if (!this.isOpen()) return;
+      this.box.dataset.open = 'false';
+      this.box.setAttribute('aria-hidden', 'true');
+      root.style.overflow = this.prevOverflow || '';
+      // Dropped so a stale photo is never briefly visible behind the fade the
+      // next time this opens.
+      this.img.removeAttribute('src');
+      if (this.lastFocus && this.lastFocus.focus) this.lastFocus.focus();
+      this.lastFocus = null;
+    },
+
+    measure() {
+      // Fit never enlarges (max-width/height only shrink), so the photo is
+      // already at full size whenever it is not being scaled down.
+      const shrunk = this.img.naturalWidth > this.img.clientWidth + 1
+                  || this.img.naturalHeight > this.img.clientHeight + 1;
+      this.canZoom = this.box.dataset.zoom === 'actual' || shrunk;
+
+      this.zoomBtn.disabled = !this.canZoom;
+      this.img.style.cursor = this.canZoom ? '' : 'default';
+      if (!this.canZoom && this.hint) {
+        this.hint.textContent =
+          `Shown at full size, ${this.img.naturalWidth}×${this.img.naturalHeight} · Esc to close`;
+      }
+    },
+
+    toggleZoom() {
+      this.setZoom(this.box.dataset.zoom === 'actual' ? 'fit' : 'actual');
+    },
+
+    setZoom(mode) {
+      this.box.dataset.zoom = mode;
+      const actual = mode === 'actual';
+      this.zoomBtn.setAttribute('aria-pressed', String(actual));
+      if (this.zoomText) this.zoomText.textContent = actual ? 'Fit to screen' : 'Actual size';
+      this.zoomBtn.setAttribute('aria-label',
+        actual ? 'Fit the image to the screen' : 'Show the image at actual size');
+      if (this.hint && this.canZoom !== false) {
+        this.hint.textContent = actual
+          ? 'Scroll or drag to move around · Esc to close'
+          : 'Click the image to zoom · Esc to close';
+      }
+      if (actual) {
+        // Open on the middle of the photo rather than its top-left corner.
+        this.stage.scrollLeft = (this.stage.scrollWidth - this.stage.clientWidth) / 2;
+        this.stage.scrollTop = (this.stage.scrollHeight - this.stage.clientHeight) / 2;
+      }
     },
   };
 
@@ -764,19 +968,37 @@
       const barangay = $('[data-report-barangay]', form);
       const purok = $('[data-report-purok]', form);
       const property = $('[data-report-property]', form);
+      const search = $('[data-report-search]', form);
       const count = $('[data-report-count]', form);
       if (!barangay || !property) return;
+
+      // Which barangay the purok list was last built for. Rebuilding it on a
+      // purok change would discard the very choice that triggered the load, so
+      // the list is refreshed only when the barangay actually changed. This
+      // used to test `document.activeElement === barangay`, which is not the
+      // same thing -- a change fired while focus had already moved on left the
+      // purok list empty.
+      let builtFor = null;
 
       const load = async () => {
         if (!barangay.value) {
           purok.disabled = true;
           property.disabled = true;
+          if (search) search.disabled = true;
           return;
         }
+
+        // A purok belongs to the barangay it was chosen in. Carrying it over
+        // to a different barangay filters the property list down to nothing.
+        const changed = builtFor !== barangay.value;
+        if (changed) purok.value = '';
 
         const url = new URL(form.dataset.optionsUrl, window.location.origin);
         url.searchParams.set('barangay', barangay.value);
         if (purok.value) url.searchParams.set('purok', purok.value);
+        if (search && search.value.trim()) {
+          url.searchParams.set('search', search.value.trim());
+        }
 
         let data;
         try {
@@ -785,9 +1007,8 @@
           return;   // the plain-form path still works; leave what is there
         }
 
-        // Rebuilding the purok list would discard the choice that triggered
-        // this load, so only refresh it when the barangay changed.
-        if (document.activeElement === barangay) {
+        if (changed) {
+          builtFor = barangay.value;
           purok.innerHTML = '<option value="">All puroks</option>';
           data.puroks.forEach((p) => {
             const opt = document.createElement('option');
@@ -797,14 +1018,18 @@
           });
         }
 
+        // A one-line select preselects whatever comes first, so the empty
+        // placeholder is rebuilt every time -- without it the form would sit
+        // holding a household the resident never chose.
+        const term = search ? search.value.trim() : '';
         property.innerHTML = '';
-        if (!data.properties.length) {
-          const opt = document.createElement('option');
-          opt.value = '';
-          opt.disabled = true;
-          opt.textContent = 'No properties are registered here yet';
-          property.appendChild(opt);
-        }
+        const blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = data.properties.length
+          ? 'Select your household or establishment…'
+          : (term ? `No match for "${term}"` : 'No properties are registered here yet');
+        property.appendChild(blank);
+
         data.properties.forEach((p) => {
           const opt = document.createElement('option');
           opt.value = p.id;
@@ -814,15 +1039,151 @@
 
         purok.disabled = false;
         property.disabled = false;
+        if (search) search.disabled = false;
         if (count) {
-          count.textContent =
-            `${data.properties.length} listed. If yours is missing, ask your ` +
-            'barangay office to add it.';
+          count.textContent = data.properties.length
+            ? `${data.properties.length} listed. If yours is missing, ask your `
+              + 'barangay office to add it.'
+            : (term
+                ? 'Nothing matches that name. Clear the search to see the whole list.'
+                : 'No households or establishments are registered in this barangay '
+                  + 'yet. Ask your barangay office to add yours.');
         }
       };
 
       barangay.addEventListener('change', load);
       purok.addEventListener('change', load);
+
+      if (search) {
+        // Debounced: this hits the server on each change, and a resident
+        // typing a name should not send one request per keystroke.
+        let timer = null;
+        search.addEventListener('input', () => {
+          clearTimeout(timer);
+          timer = setTimeout(load, 250);
+        });
+        // Enter in a search box would otherwise submit a form that has no
+        // household chosen yet.
+        search.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          clearTimeout(timer);
+          load();
+        });
+      }
+    },
+  };
+
+  /* ======================================================================
+     UNTIL FIELD -- "Replacement Until", shown only when it applies
+
+     A permanent assignment has no end date, so the field is hidden and not
+     required until Status says Temporary Replacement. The server enforces the
+     same rule; this just stops the form asking for a date that means nothing.
+     ====================================================================== */
+
+  const UntilField = {
+    TEMP: 'Temporary Replacement',
+
+    init() {
+      $$('[data-until-field]').forEach((field) => {
+        const form = field.closest('form');
+        if (!form) return;
+        const controls = $$('[name="status"]', form);
+        if (!controls.length) return;
+
+        const sync = () => this.apply(field, this.statusOf(controls));
+        controls.forEach((c) => c.addEventListener('change', sync));
+        // Also after a dialog is filled from a row's data-set-* values.
+        form.addEventListener('gcts:filled', sync);
+        sync();
+      });
+    },
+
+    statusOf(controls) {
+      const radios = controls.filter((c) => c.type === 'radio');
+      if (radios.length) {
+        const picked = radios.find((r) => r.checked);
+        return picked ? picked.value : '';
+      }
+      return controls[0].value;
+    },
+
+    apply(field, status) {
+      const on = status === this.TEMP;
+      field.hidden = !on;
+      const input = field.querySelector('input');
+      if (!input) return;
+      input.required = on;
+      // A hidden date must not block submission with a stale value.
+      if (!on) input.setCustomValidity('');
+    },
+  };
+
+  /* ======================================================================
+     DATE FIELDS -- open the calendar, and apply the choice
+
+     Two complaints, one cause. A bare <input type="date"> only opens its
+     calendar from the small glyph at the right-hand edge, and the "View"
+     button next to it looked like the way to pick a date when all it did was
+     submit -- so tapping the obvious control just reloaded the same day.
+
+     Here the whole field opens the picker, the button beside it does too, and
+     choosing a date applies it. showPicker() is guarded: where it is missing
+     or refuses, the click falls through and the button still submits, which
+     is exactly the old behaviour.
+     ====================================================================== */
+
+  const DateField = {
+    init() {
+      // Every date field, dialogs included. Restricting this to page-level
+      // fields left the ones inside a modal behaving differently from the
+      // ones outside it, which is the sort of inconsistency that reads as a
+      // broken control rather than a deliberate choice.
+      this.wire(document);
+
+      // A dialog's fields are in the DOM from the start here, but wiring on
+      // open too keeps this correct if any dialog is ever built on demand.
+      $$('[data-modal-open]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const modal = document.getElementById(btn.dataset.modalOpen);
+          if (modal) this.wire(modal);
+        });
+      });
+
+      $$('[data-date-picker]').forEach((btn) => {
+        const input = document.getElementById(btn.dataset.datePicker);
+        if (!input) return;
+        btn.addEventListener('click', (e) => {
+          if (this.show(input)) e.preventDefault();
+        });
+      });
+
+      // Applying the choice. Without this the calendar closes and nothing
+      // happens until the button is found and pressed a second time.
+      $$('[data-date-submit]').forEach((input) => {
+        input.addEventListener('change', () => {
+          if (input.value && input.form) input.form.submit();
+        });
+      });
+    },
+
+    wire(root) {
+      $$('input[type="date"]', root).forEach((input) => {
+        if (input.dataset.pickerWired) return;   // once per field
+        input.dataset.pickerWired = '1';
+        input.addEventListener('click', () => this.show(input));
+      });
+    },
+
+    show(input) {
+      if (typeof input.showPicker !== 'function') return false;
+      try {
+        input.showPicker();
+        return true;
+      } catch (err) {
+        return false;   // not user-activated, or unsupported -- let it be
+      }
     },
   };
 
@@ -835,6 +1196,7 @@
     Drawer.init();
     Popover.init();
     Modal.init();
+    Lightbox.init();
     Toast.init();
     Clock.init();
     Forms.init();
@@ -846,6 +1208,8 @@
     RoleFields.init();
     Duty.init();
     ReportForm.init();
+    DateField.init();
+    UntilField.init();
   }
 
   if (document.readyState === 'loading') {
