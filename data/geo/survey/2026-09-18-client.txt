@@ -1,0 +1,12 @@
+# MRF coordinates supplied by the City, 18 September 2026.
+# Kept verbatim as received, so the import can always be re-run from the source.
+Bayabas  - 9°08'05.49"N 125°35'29.63"E
+Caasinan - 9°08'17.01"N 125°31'33.05"E
+Cabinet - 9°07'29.00"N 125°31'37.63"E
+Comagascas  - 9°08'15.12"N 125°33'33.03"E
+Del Pilar - 9°09'16.81"N 125°34'42.90"E
+Katugasan - 9°08'23.48"N 125°34'24.18"E
+Kauswagan - 9°08'05.48"N 125°32'34.68"E
+Poblacion 5 - 9°07'08.16"N 125°31'59.50"E
+Poblacion 7 - 9°07'31.09"N 125°32'11.78"E
+Poblacion 8 - 9°07'24.26"N 125°32'15.74"E

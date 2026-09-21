@@ -1,0 +1,255 @@
+{
+  "_note": "Barangay centre coordinates, not MRF locations. Published by PhilAtlas and read from each barangay's infobox. A barangay is an area; its MRF is one building inside it and has to be surveyed on the ground. See docs/DATA_REQUIREMENTS.md.",
+  "_source": "https://www.philatlas.com/",
+  "_fetched": "2026-09-16",
+  "centres": [
+    {
+      "barangay_id": "brgy-01",
+      "name": "Antonio Luna",
+      "lat": 9.0827,
+      "lng": 125.5911,
+      "elevation_m": 16.8,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/antonio-luna.html"
+    },
+    {
+      "barangay_id": "brgy-02",
+      "name": "Bay-ang",
+      "lat": 9.1041,
+      "lng": 125.5773,
+      "elevation_m": 24.6,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/bay-ang.html"
+    },
+    {
+      "barangay_id": "brgy-03",
+      "name": "Bayabas",
+      "lat": 9.1455,
+      "lng": 125.5937,
+      "elevation_m": 43.2,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/bayabas.html"
+    },
+    {
+      "barangay_id": "brgy-04",
+      "name": "Caasinan",
+      "lat": 9.1362,
+      "lng": 125.5236,
+      "elevation_m": 9.1,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/caasinan.html"
+    },
+    {
+      "barangay_id": "brgy-05",
+      "name": "Cabinet",
+      "lat": 9.1245,
+      "lng": 125.5268,
+      "elevation_m": 7.7,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/cabinet.html"
+    },
+    {
+      "barangay_id": "brgy-06",
+      "name": "Calamba",
+      "lat": 9.0985,
+      "lng": 125.6006,
+      "elevation_m": 47.6,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/calamba.html"
+    },
+    {
+      "barangay_id": "brgy-07",
+      "name": "Calibunan",
+      "lat": 9.1057,
+      "lng": 125.5338,
+      "elevation_m": 12.0,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/calibunan.html"
+    },
+    {
+      "barangay_id": "brgy-08",
+      "name": "Comagascas",
+      "lat": 9.135,
+      "lng": 125.5587,
+      "elevation_m": 19.9,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/comagascas.html"
+    },
+    {
+      "barangay_id": "brgy-09",
+      "name": "Concepcion",
+      "lat": 9.1807,
+      "lng": 125.5822,
+      "elevation_m": 78.3,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/concepcion.html"
+    },
+    {
+      "barangay_id": "brgy-10",
+      "name": "Del Pilar",
+      "lat": 9.1513,
+      "lng": 125.584,
+      "elevation_m": 38.4,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/del-pilar.html"
+    },
+    {
+      "barangay_id": "brgy-11",
+      "name": "Katugasan",
+      "lat": 9.1313,
+      "lng": 125.5837,
+      "elevation_m": 31.7,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/katugasan.html"
+    },
+    {
+      "barangay_id": "brgy-12",
+      "name": "Kauswagan",
+      "lat": 9.1299,
+      "lng": 125.5309,
+      "elevation_m": 8.5,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/kauswagan.html"
+    },
+    {
+      "barangay_id": "brgy-13",
+      "name": "La Union",
+      "lat": 9.0845,
+      "lng": 125.5364,
+      "elevation_m": 7.3,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/la-union.html"
+    },
+    {
+      "barangay_id": "brgy-14",
+      "name": "Mabini",
+      "lat": 9.1129,
+      "lng": 125.5523,
+      "elevation_m": 14.3,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/mabini.html"
+    },
+    {
+      "barangay_id": "brgy-15",
+      "name": "Mahaba",
+      "lat": 9.1036,
+      "lng": 125.6299,
+      "elevation_m": 161.4,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/mahaba.html"
+    },
+    {
+      "barangay_id": "brgy-16",
+      "name": "Poblacion 1",
+      "lat": 9.1232,
+      "lng": 125.533,
+      "elevation_m": 10.6,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-1.html"
+    },
+    {
+      "barangay_id": "brgy-17",
+      "name": "Poblacion 2",
+      "lat": 9.1252,
+      "lng": 125.5329,
+      "elevation_m": 11.0,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-2.html"
+    },
+    {
+      "barangay_id": "brgy-18",
+      "name": "Poblacion 3",
+      "lat": 9.1233,
+      "lng": 125.5297,
+      "elevation_m": 6.1,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-3.html"
+    },
+    {
+      "barangay_id": "brgy-19",
+      "name": "Poblacion 4",
+      "lat": 9.1194,
+      "lng": 125.5325,
+      "elevation_m": 9.4,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-4.html"
+    },
+    {
+      "barangay_id": "brgy-20",
+      "name": "Poblacion 5",
+      "lat": 9.1189,
+      "lng": 125.5338,
+      "elevation_m": 9.4,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-5.html"
+    },
+    {
+      "barangay_id": "brgy-21",
+      "name": "Poblacion 6",
+      "lat": 9.1247,
+      "lng": 125.5345,
+      "elevation_m": 11.2,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-6.html"
+    },
+    {
+      "barangay_id": "brgy-22",
+      "name": "Poblacion 7",
+      "lat": 9.125,
+      "lng": 125.5373,
+      "elevation_m": 11.6,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-7.html"
+    },
+    {
+      "barangay_id": "brgy-23",
+      "name": "Poblacion 8",
+      "lat": 9.1229,
+      "lng": 125.5361,
+      "elevation_m": 10.7,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-8.html"
+    },
+    {
+      "barangay_id": "brgy-24",
+      "name": "Poblacion 9",
+      "lat": 9.1227,
+      "lng": 125.542,
+      "elevation_m": 12.8,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-9.html"
+    },
+    {
+      "barangay_id": "brgy-25",
+      "name": "Poblacion 10",
+      "lat": 9.1206,
+      "lng": 125.5367,
+      "elevation_m": 11.8,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-10.html"
+    },
+    {
+      "barangay_id": "brgy-26",
+      "name": "Poblacion 11",
+      "lat": 9.1182,
+      "lng": 125.5354,
+      "elevation_m": 9.3,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-11.html"
+    },
+    {
+      "barangay_id": "brgy-27",
+      "name": "Poblacion 12",
+      "lat": 9.1178,
+      "lng": 125.541,
+      "elevation_m": 11.5,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/poblacion-12.html"
+    },
+    {
+      "barangay_id": "brgy-28",
+      "name": "Puting Bato",
+      "lat": 9.1263,
+      "lng": 125.6368,
+      "elevation_m": 108.7,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/puting-bato.html"
+    },
+    {
+      "barangay_id": "brgy-29",
+      "name": "Sanghan",
+      "lat": 9.0878,
+      "lng": 125.5709,
+      "elevation_m": 12.1,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/sanghan.html"
+    },
+    {
+      "barangay_id": "brgy-30",
+      "name": "Soriano",
+      "lat": 9.0996,
+      "lng": 125.565,
+      "elevation_m": 17.9,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/soriano.html"
+    },
+    {
+      "barangay_id": "brgy-31",
+      "name": "Tolosa",
+      "lat": 9.1175,
+      "lng": 125.5255,
+      "elevation_m": 6.4,
+      "source_url": "https://www.philatlas.com/mindanao/caraga/agusan-del-norte/cabadbaran/tolosa.html"
+    }
+  ]
+}

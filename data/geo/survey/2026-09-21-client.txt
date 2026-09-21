@@ -1,0 +1,95 @@
+# Surveyed MRF coordinates, all 31 barangays.
+# Sent by the client 2026-09-21. Kept verbatim, exactly as received, including
+# the numbering and spacing -- this is the record of what was handed over, and
+# tools/import_mrf_survey.py is what turns it into data. Do not tidy it.
+
+1. Antonio Luna - 9°05'03.63"N 125°35'32.88"E
+
+
+2. Bay-ang  - 9°06'08.79"N 125°34'39.65"E
+
+
+3. Bayabas  - 9°08'05.49"N 125°35'29.63"E
+
+
+4. Caasinan - 9°08'17.01"N 125°31'33.05"E
+
+
+5. Cabinet - 9°07'29.00"N 125°31'37.63"E
+
+
+6. Calamba - 9°05'54.05"N 125°36'00.40"E
+
+
+7. Calibunan - 9°06'05.35"N 125°32'03.82"E
+
+
+8. Comagascas  - 9°08'15.12"N 125°33'33.03"E
+
+
+9. Concepcion - 9°11'19.51"N 125°34'34.24"E
+
+
+10. Del Pilar - 9°09'16.81"N 125°34'42.90"E
+
+
+11. Katugasan - 9°08'23.48"N 125°34'24.18"E
+
+
+12. Kauswagan - 9°08'05.48"N 125°32'34.68"E
+
+
+13. La Union - 9°04'52.92"N 125°32'13.04"E
+
+
+14. Mabini - 9°06'52.91"N 125°34'32.36"E
+
+
+15. Mahaba - 9°06'15.78"N 125°37'49.29"E
+
+
+16. Poblacion 1 - 9°07'16.66"N 125°31'44.09"E
+
+
+17. Poblacion 2 - 9°07'32.66"N 125°31'57.63"E
+
+
+18. Poblacion 3 - 9°07'30.58"N 125°31'53.92"E
+
+
+19. Poblacion 4 - 9°06'43.19"N 125°31'55.44"E
+
+
+20. Poblacion 5 - 9°07'08.16"N 125°31'59.50"E
+
+
+21. Poblacion 6 - 9°07'28.87"N 125°32'03.04"E
+
+
+22. Poblacion 7 - 9°07'31.09"N 125°32'11.78"E
+
+
+23. Poblacion 8 -  9°07'20.29"N 125°32'14.15"E
+
+24. Poblacion 9 - 9°07'21.45"N 125°32'22.59"E
+
+
+25. Poblacion 10 - 9°07'14.17"N 125°32'12.40"E
+
+
+26. Poblacion 11 - 9°06'50.55"N 125°32'02.07"E
+
+
+27. Poblacion 12 - 9°06'47.47"N 125°32'19.80"E
+
+
+28. Puting Bato - 9°07'37.96"N 125°37'26.56"E
+
+
+29. Sanghan - 9°05'10.35"N 125°34'20.12"E
+
+
+30. Soriano - 9°05'53.30"N 125°33'49.11"E
+
+
+31. Tolosa - 9°07'11.49"N 125°31'26.16"E

@@ -1,8 +1,30 @@
 # Runtime data. Never commit these -- data/ holds live records including
 # password hashes, and uploads/ holds photographs of people's property.
-data/
+#
+# Written as "ignore everything, then name the exceptions", because git will
+# not descend into an excluded directory: a bare `data/` makes every !rule
+# underneath it dead letter, however correct the rule looks.
+data/*
 uploads/
 instance/
+
+# The exception is geography that came from outside the system. It is source
+# data, not runtime records: published barangay coordinates, the coordinates
+# the city measured at each MRF, and the raw lists those were read from. No
+# personal data, nothing here can regenerate them, and the deploy needs them --
+# tools/make_demo_geo.py reads them on boot and falls back to invented
+# positions without them, which is how a server ends up showing MRF pins
+# several kilometres from the real facilities.
+!data/geo/
+data/geo/*
+!data/geo/barangay_centres.json
+!data/geo/mrf_surveyed.json
+!data/geo/survey/
+
+# What make_demo_geo.py writes from those stays ignored: regenerated on every
+# boot, so committing it would only produce conflicts.
+#   data/geo/barangay_zones.geojson
+#   data/geo/mrf_locations.json
 
 # Local Python
 __pycache__/

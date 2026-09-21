@@ -1,0 +1,225 @@
+{
+  "_note": "SURVEYED MRF COORDINATES -- measured on the ground, one entry per facility. Every coordinate here is used verbatim. Barangays absent from this list have no surveyed facility yet and are approximated near their barangay centre by tools/make_demo_geo.py.",
+  "_imported": "2026-09-21",
+  "_surveyed_count": 31,
+  "_barangay_count": 31,
+  "surveyed": [
+    {
+      "barangay_id": "brgy-01",
+      "name": "Antonio Luna",
+      "lat": 9.084342,
+      "lng": 125.592467,
+      "as_given": "1. Antonio Luna - 9\u00b005'03.63\"N 125\u00b035'32.88\"E"
+    },
+    {
+      "barangay_id": "brgy-02",
+      "name": "Bay-ang",
+      "lat": 9.102442,
+      "lng": 125.577681,
+      "as_given": "2. Bay-ang  - 9\u00b006'08.79\"N 125\u00b034'39.65\"E"
+    },
+    {
+      "barangay_id": "brgy-03",
+      "name": "Bayabas",
+      "lat": 9.134858,
+      "lng": 125.591564,
+      "as_given": "3. Bayabas  - 9\u00b008'05.49\"N 125\u00b035'29.63\"E"
+    },
+    {
+      "barangay_id": "brgy-04",
+      "name": "Caasinan",
+      "lat": 9.138058,
+      "lng": 125.525847,
+      "as_given": "4. Caasinan - 9\u00b008'17.01\"N 125\u00b031'33.05\"E"
+    },
+    {
+      "barangay_id": "brgy-05",
+      "name": "Cabinet",
+      "lat": 9.124722,
+      "lng": 125.527119,
+      "as_given": "5. Cabinet - 9\u00b007'29.00\"N 125\u00b031'37.63\"E"
+    },
+    {
+      "barangay_id": "brgy-06",
+      "name": "Calamba",
+      "lat": 9.098347,
+      "lng": 125.600111,
+      "as_given": "6. Calamba - 9\u00b005'54.05\"N 125\u00b036'00.40\"E"
+    },
+    {
+      "barangay_id": "brgy-07",
+      "name": "Calibunan",
+      "lat": 9.101486,
+      "lng": 125.534394,
+      "as_given": "7. Calibunan - 9\u00b006'05.35\"N 125\u00b032'03.82\"E"
+    },
+    {
+      "barangay_id": "brgy-08",
+      "name": "Comagascas",
+      "lat": 9.137533,
+      "lng": 125.559175,
+      "as_given": "8. Comagascas  - 9\u00b008'15.12\"N 125\u00b033'33.03\"E"
+    },
+    {
+      "barangay_id": "brgy-09",
+      "name": "Concepcion",
+      "lat": 9.188753,
+      "lng": 125.576178,
+      "as_given": "9. Concepcion - 9\u00b011'19.51\"N 125\u00b034'34.24\"E"
+    },
+    {
+      "barangay_id": "brgy-10",
+      "name": "Del Pilar",
+      "lat": 9.154669,
+      "lng": 125.578583,
+      "as_given": "10. Del Pilar - 9\u00b009'16.81\"N 125\u00b034'42.90\"E"
+    },
+    {
+      "barangay_id": "brgy-11",
+      "name": "Katugasan",
+      "lat": 9.139856,
+      "lng": 125.573383,
+      "as_given": "11. Katugasan - 9\u00b008'23.48\"N 125\u00b034'24.18\"E"
+    },
+    {
+      "barangay_id": "brgy-12",
+      "name": "Kauswagan",
+      "lat": 9.134856,
+      "lng": 125.542967,
+      "as_given": "12. Kauswagan - 9\u00b008'05.48\"N 125\u00b032'34.68\"E"
+    },
+    {
+      "barangay_id": "brgy-13",
+      "name": "La Union",
+      "lat": 9.081367,
+      "lng": 125.536956,
+      "as_given": "13. La Union - 9\u00b004'52.92\"N 125\u00b032'13.04\"E"
+    },
+    {
+      "barangay_id": "brgy-14",
+      "name": "Mabini",
+      "lat": 9.114697,
+      "lng": 125.575656,
+      "as_given": "14. Mabini - 9\u00b006'52.91\"N 125\u00b034'32.36\"E"
+    },
+    {
+      "barangay_id": "brgy-15",
+      "name": "Mahaba",
+      "lat": 9.104383,
+      "lng": 125.630358,
+      "as_given": "15. Mahaba - 9\u00b006'15.78\"N 125\u00b037'49.29\"E"
+    },
+    {
+      "barangay_id": "brgy-16",
+      "name": "Poblacion 1",
+      "lat": 9.121294,
+      "lng": 125.528914,
+      "as_given": "16. Poblacion 1 - 9\u00b007'16.66\"N 125\u00b031'44.09\"E"
+    },
+    {
+      "barangay_id": "brgy-17",
+      "name": "Poblacion 2",
+      "lat": 9.125739,
+      "lng": 125.532675,
+      "as_given": "17. Poblacion 2 - 9\u00b007'32.66\"N 125\u00b031'57.63\"E"
+    },
+    {
+      "barangay_id": "brgy-18",
+      "name": "Poblacion 3",
+      "lat": 9.125161,
+      "lng": 125.531644,
+      "as_given": "18. Poblacion 3 - 9\u00b007'30.58\"N 125\u00b031'53.92\"E"
+    },
+    {
+      "barangay_id": "brgy-19",
+      "name": "Poblacion 4",
+      "lat": 9.111997,
+      "lng": 125.532067,
+      "as_given": "19. Poblacion 4 - 9\u00b006'43.19\"N 125\u00b031'55.44\"E"
+    },
+    {
+      "barangay_id": "brgy-20",
+      "name": "Poblacion 5",
+      "lat": 9.118933,
+      "lng": 125.533194,
+      "as_given": "20. Poblacion 5 - 9\u00b007'08.16\"N 125\u00b031'59.50\"E"
+    },
+    {
+      "barangay_id": "brgy-21",
+      "name": "Poblacion 6",
+      "lat": 9.124686,
+      "lng": 125.534178,
+      "as_given": "21. Poblacion 6 - 9\u00b007'28.87\"N 125\u00b032'03.04\"E"
+    },
+    {
+      "barangay_id": "brgy-22",
+      "name": "Poblacion 7",
+      "lat": 9.125303,
+      "lng": 125.536606,
+      "as_given": "22. Poblacion 7 - 9\u00b007'31.09\"N 125\u00b032'11.78\"E"
+    },
+    {
+      "barangay_id": "brgy-23",
+      "name": "Poblacion 8",
+      "lat": 9.122303,
+      "lng": 125.537264,
+      "as_given": "23. Poblacion 8 -  9\u00b007'20.29\"N 125\u00b032'14.15\"E"
+    },
+    {
+      "barangay_id": "brgy-24",
+      "name": "Poblacion 9",
+      "lat": 9.122625,
+      "lng": 125.539608,
+      "as_given": "24. Poblacion 9 - 9\u00b007'21.45\"N 125\u00b032'22.59\"E"
+    },
+    {
+      "barangay_id": "brgy-25",
+      "name": "Poblacion 10",
+      "lat": 9.120603,
+      "lng": 125.536778,
+      "as_given": "25. Poblacion 10 - 9\u00b007'14.17\"N 125\u00b032'12.40\"E"
+    },
+    {
+      "barangay_id": "brgy-26",
+      "name": "Poblacion 11",
+      "lat": 9.114042,
+      "lng": 125.533908,
+      "as_given": "26. Poblacion 11 - 9\u00b006'50.55\"N 125\u00b032'02.07\"E"
+    },
+    {
+      "barangay_id": "brgy-27",
+      "name": "Poblacion 12",
+      "lat": 9.113186,
+      "lng": 125.538833,
+      "as_given": "27. Poblacion 12 - 9\u00b006'47.47\"N 125\u00b032'19.80\"E"
+    },
+    {
+      "barangay_id": "brgy-28",
+      "name": "Puting Bato",
+      "lat": 9.127211,
+      "lng": 125.624044,
+      "as_given": "28. Puting Bato - 9\u00b007'37.96\"N 125\u00b037'26.56\"E"
+    },
+    {
+      "barangay_id": "brgy-29",
+      "name": "Sanghan",
+      "lat": 9.086208,
+      "lng": 125.572256,
+      "as_given": "29. Sanghan - 9\u00b005'10.35\"N 125\u00b034'20.12\"E"
+    },
+    {
+      "barangay_id": "brgy-30",
+      "name": "Soriano",
+      "lat": 9.098139,
+      "lng": 125.563642,
+      "as_given": "30. Soriano - 9\u00b005'53.30\"N 125\u00b033'49.11\"E"
+    },
+    {
+      "barangay_id": "brgy-31",
+      "name": "Tolosa",
+      "lat": 9.119858,
+      "lng": 125.523933,
+      "as_given": "31. Tolosa - 9\u00b007'11.49\"N 125\u00b031'26.16\"E"
+    }
+  ]
+}
