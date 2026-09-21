@@ -529,25 +529,40 @@ def _pickup_location(barangay_id: str, entry: dict | None,
     """
     Where a pickup happened, from two independent sources.
 
-    The MRF's own registered coordinates say where the facility is; the GPS
-    the truck captured says where the operator actually stood when they
-    recorded it. They are usually the same place and occasionally are not,
-    which is exactly why both are kept rather than one overwriting the other.
+    The MRF's own coordinates say where the facility is; the GPS the truck
+    captured says where the operator actually stood when they recorded it. They
+    are usually the same place and occasionally are not, which is exactly why
+    both are kept rather than one overwriting the other.
+
+    The facility's own coordinate comes in two grades, and the label has to say
+    which. Ten of the 31 have been measured at the gate; the rest are placed
+    near their barangay's published centre until somebody surveys them. Calling
+    an approximated point a "registered location" would invite exactly the
+    mistake the flag exists to prevent -- reading a figure that is right to
+    within a barangay as one that is right to within a building.
     """
     point = mrf_points.get(barangay_id) or {}
     captured = (entry or {}).get("gps") or None
+    has_point = point.get("lat") is not None
+
+    if captured:
+        source = "Captured at the stop"
+    elif has_point and point.get("surveyed"):
+        source = "Surveyed MRF location"
+    elif has_point:
+        source = "Approximate — MRF not yet surveyed"
+    else:
+        source = ""
 
     return {
         "name": point.get("name") or "",
         "lat": point.get("lat"),
         "lng": point.get("lng"),
+        "surveyed": bool(point.get("surveyed")),
         "captured": captured,
         "coords": (f"{captured['lat']}, {captured['lng']}" if captured
-                   else (f"{point['lat']}, {point['lng']}"
-                         if point.get("lat") is not None else "")),
-        "source": ("Captured at the stop" if captured
-                   else "Registered MRF location" if point.get("lat") is not None
-                   else ""),
+                   else (f"{point['lat']}, {point['lng']}" if has_point else "")),
+        "source": source,
     }
 
 

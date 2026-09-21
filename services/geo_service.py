@@ -28,6 +28,7 @@ hotspot data arrives.
 
 import json
 import math
+import re
 import threading
 from datetime import timedelta
 from pathlib import Path
@@ -214,16 +215,173 @@ def zone_centroid(barangay_id: str) -> tuple[float, float] | None:
 # MRF locations
 # ---------------------------------------------------------------------------
 
+SURVEY_FILE = "mrf_surveyed.json"
+
+# Cabadbaran with room to spare. A coordinate outside this is a typo, a
+# swapped lat/lng pair, or a reading taken in the wrong town -- none of which
+# should be storable.
+CITY_BOUNDS = {"lat": (8.95, 9.35), "lng": (125.40, 125.75)}
+
+
+def surveyed_points() -> dict:
+    """
+    Coordinates measured at the facility, or set by hand by a City Hall Admin,
+    keyed by barangay id.
+
+    This is an overlay read at request time rather than a file the generator
+    bakes in. That is what lets an admin correct a pin and see it move on the
+    next page load: the generated file stays the fallback for facilities nobody
+    has been to yet, and never overwrites a known position.
+    """
+    data, _ = _load(SURVEY_FILE)
+    rows = (data or {}).get("surveyed") if isinstance(data, dict) else None
+    return {row["barangay_id"]: row for row in rows or []
+            if row.get("barangay_id") and row.get("lat") is not None}
+
+
+def _write_survey(rows: list) -> None:
+    from services import timeutil
+
+    path = Path(Config.GEO_DIR) / SURVEY_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "_note": (
+            "SURVEYED MRF COORDINATES -- measured on the ground or set by a "
+            "City Hall Admin. Every coordinate here is used exactly as given. "
+            "Barangays absent from this list have no known facility position "
+            "and are approximated near their barangay centre."),
+        "_imported": timeutil.today_str(),
+        "_surveyed_count": len(rows),
+        "_barangay_count": storage.count("barangays"),
+        "surveyed": sorted(rows, key=lambda r: r.get("barangay_id") or ""),
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def set_mrf_location(barangay_id: str, lat, lng, actor: str | None = None,
+                     note: str = "") -> dict:
+    """
+    Record where a barangay's MRF actually is.
+
+    Raises ValidationError with per-field messages, because this is driven by a
+    form and an admin who typed 9.12 into the longitude box needs to be told
+    which box was wrong, not handed a stack trace.
+    """
+    from services.validation import ValidationError
+
+    errors = {}
+    barangay = storage.find_one("barangays", id=barangay_id)
+    if not barangay:
+        errors["form"] = "That barangay no longer exists."
+
+    values = {}
+    for field, raw, span in (("lat", lat, CITY_BOUNDS["lat"]),
+                             ("lng", lng, CITY_BOUNDS["lng"])):
+        parsed = parse_coordinate(raw)
+        label = "Latitude" if field == "lat" else "Longitude"
+        if parsed is None:
+            errors[field] = (
+                f"{label} must be a number in decimal degrees (9.123456) or "
+                f"degrees-minutes-seconds (9\u00b007'24.3\"N).")
+        elif not (span[0] <= parsed <= span[1]):
+            errors[field] = (
+                f"{parsed:.6f} is outside Cabadbaran. {label} should be "
+                f"between {span[0]} and {span[1]} -- check the two values are "
+                f"not swapped.")
+        else:
+            values[field] = round(parsed, 6)
+
+    if errors:
+        raise ValidationError(errors)
+
+    from services import timeutil
+
+    rows = [row for row in surveyed_points().values()
+            if row["barangay_id"] != barangay_id]
+    rows.append({
+        "barangay_id": barangay_id,
+        "name": barangay.get("name"),
+        "lat": values["lat"],
+        "lng": values["lng"],
+        "source": "Set by City Hall Admin",
+        "note": (note or "").strip()[:200],
+        "updated_by": actor,
+        "updated_at": timeutil.stamp(),
+    })
+    _write_survey(rows)
+    return next(r for r in rows if r["barangay_id"] == barangay_id)
+
+
+def clear_mrf_location(barangay_id: str) -> bool:
+    """
+    Forget a facility's position, falling back to the approximation.
+
+    Deliberately available: an admin who pins the wrong building needs a way
+    back to "we do not know" rather than being stuck with a wrong figure that
+    the system presents as surveyed.
+    """
+    rows = list(surveyed_points().values())
+    kept = [row for row in rows if row["barangay_id"] != barangay_id]
+    if len(kept) == len(rows):
+        return False
+    _write_survey(kept)
+    return True
+
+
+def parse_coordinate(value) -> float | None:
+    """
+    One coordinate from whatever an admin pasted in.
+
+    Decimal degrees, or degrees-minutes-seconds in any of the spellings people
+    actually use -- 9\u00b007'24.26"N, 9 07 24.26 N, 9:07:24.26. The city sends
+    coordinates in DMS, so refusing it would mean every admin converting by
+    hand, which is a step that introduces the errors this validates for.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    hemisphere = -1 if re.search(r"[SW]\s*$", text, re.I) else 1
+    text = re.sub(r"[NSEW]\s*$", "", text, flags=re.I).strip()
+
+    dms = re.fullmatch(
+        r"(\d{1,3})\s*[\u00b0:\s]\s*(\d{1,2})\s*['\u2032:\s]\s*"
+        r"(\d{1,2}(?:\.\d+)?)\s*[\"\u2033]?", text)
+    if dms:
+        degrees, minutes, seconds = dms.groups()
+        return hemisphere * (int(degrees) + int(minutes) / 60
+                             + float(seconds) / 3600)
+
+    try:
+        return hemisphere * abs(float(text)) if hemisphere < 0 else float(text)
+    except ValueError:
+        return None
+
+
 def mrf_locations() -> dict:
     """
     Every barangay MRF with its coordinates, name resolved against
     `barangays.json`. Entries still awaiting coordinates come back with
     `lat`/`lng` of null and `located: false`.
+
+    `surveyed` says whether a facility's position was measured on the ground or
+    approximated from its barangay's centre. The two are not interchangeable --
+    an approximated pin is in the right barangay but not at the building -- and
+    anything computing distances between facilities has to be able to tell them
+    apart. The meta block counts both, so a caller can say "18 of 31 surveyed"
+    without walking the list.
     """
     data, problem = _load(MRFS_FILE)
     placeholder = _is_placeholder(data)
     rows = data if isinstance(data, list) else (data or {}).get("mrfs", [])
     known = {b.get("id"): b for b in storage.read("barangays")}
+    # Known positions win over generated ones, every time.
+    overlay = surveyed_points()
 
     items, located = [], 0
     for row in rows or []:
@@ -231,7 +389,11 @@ def mrf_locations() -> dict:
             continue
         bid = row.get("barangay_id")
         record = known.get(bid) or {}
-        lat, lng = _coerce_point(row.get("lat"), row.get("lng"))
+        known_point = overlay.get(bid)
+        if known_point:
+            lat, lng = _coerce_point(known_point["lat"], known_point["lng"])
+        else:
+            lat, lng = _coerce_point(row.get("lat"), row.get("lng"))
         if lat is not None:
             located += 1
         items.append({
@@ -243,6 +405,14 @@ def mrf_locations() -> dict:
             "lat": lat,
             "lng": lng,
             "located": lat is not None,
+            # Absent means not surveyed -- the safe reading, since a pin
+            # that cannot say where it came from is not one to trust with a
+            # distance.
+            "surveyed": bool(known_point or row.get("surveyed")),
+            "source": ((known_point or {}).get("source") or "Field survey"
+                       if known_point or row.get("surveyed")
+                       else "Approximated from the barangay centre"),
+            "updated_at": (known_point or {}).get("updated_at"),
         })
 
     return {
@@ -254,6 +424,8 @@ def mrf_locations() -> dict:
             "total": len(items),
             "located": located,
             "unlocated": len(items) - located,
+            "surveyed": sum(1 for row in items if row["surveyed"]),
+            "approximated": sum(1 for row in items if not row["surveyed"]),
         },
     }
 

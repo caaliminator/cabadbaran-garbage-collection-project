@@ -12,7 +12,7 @@ from flask import (Blueprint, Response, flash, redirect, render_template,
 
 from blueprints.auth import current_user, role_required
 from services import (assignment_service, carryover_service, collection_service,
-                      duty_service, history_service, mrf_service,
+                      duty_service, geo_service, history_service, mrf_service,
                       property_service, public_report_service, report_service,
                       reset_service, schedule_service, storage, timeutil,
                       unavailable_service, user_service, vehicle_service)
@@ -551,11 +551,59 @@ def _tricycle_coverage() -> dict:
     return coverage
 
 
+@city_bp.route("/mrf/location", methods=["POST"])
+@role_required("city_admin")
+def mrf_location():
+    """
+    Set or clear where a barangay's MRF is.
+
+    Coordinates arrive from three places -- a survey file, a script's
+    approximation, and now this form -- and only one of them can be corrected
+    by the person who notices the pin is wrong. Anything set here counts as
+    known, and outranks whatever the generator worked out.
+    """
+    barangay_id = request.form.get("barangay_id", "")
+    name = _barangay_name(barangay_id)
+
+    if request.form.get("action") == "clear":
+        if geo_service.clear_mrf_location(barangay_id):
+            flash(f"{name} MRF location cleared. It will show as approximate "
+                  f"until a new position is set.", "success")
+        else:
+            flash(f"{name} MRF had no set location to clear.", "info")
+        return redirect(url_for("city.mrf", **_mrf_filters()))
+
+    try:
+        geo_service.set_mrf_location(
+            barangay_id,
+            request.form.get("lat", ""),
+            request.form.get("lng", ""),
+            actor=current_user()["id"],
+            note=request.form.get("note", ""))
+        flash(f"{name} MRF location saved.", "success")
+    except ValidationError as exc:
+        for message in exc.errors.values():
+            flash(message, "danger")
+
+    return redirect(url_for("city.mrf", **_mrf_filters()))
+
+
+def _mrf_filters() -> dict:
+    """Keep the admin on the view they were working in after a redirect."""
+    return {key: value for key, value in (
+        ("date", request.form.get("return_date")),
+        ("barangay", request.form.get("return_barangay")),
+        ("truck", request.form.get("return_truck")),
+        ("status", request.form.get("return_status")),
+    ) if value}
+
+
 @city_bp.route("/mrf")
 @role_required("city_admin")
 def mrf():
     date = request.args.get("date") or timeutil.today_str()
     counts = mrf_service.city_counts(date)
+    located = geo_service.mrf_locations()["meta"]
 
     return render_template(
         "city-hall-admin/mrf.html",
@@ -579,6 +627,11 @@ def mrf():
         trucks=vehicle_service.in_service(vehicle_service.TRUCK),
         statuses=[mrf_service.PENDING, mrf_service.COLLECTED, mrf_service.NOT_COLLECTED],
         selected_date=date,
+        located=located,
+        filters={"date": date,
+                 "barangay": request.args.get("barangay") or "",
+                 "truck": request.args.get("truck") or "",
+                 "status": request.args.get("status") or ""},
     )
 
 

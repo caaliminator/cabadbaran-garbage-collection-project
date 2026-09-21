@@ -12,6 +12,7 @@ Config.GEO_DIR = tmp / "geo"
 Config.UPLOAD_DIR = tmp / "uploads"
 
 from services import geo_service, storage, timeutil
+from services.validation import ValidationError
 import seed
 
 ok = lambda label, cond: print(f"  {'PASS' if cond else 'FAIL':<4} {label}") or cond
@@ -112,6 +113,49 @@ storage.insert("users", {"username": "someone", "role": "barangay_admin"})
 seed.run()
 results.append(ok("no duplicate barangays", storage.count("barangays") == 31))
 results.append(ok("hand-added user untouched", storage.count("users", username="someone") == 1))
+
+
+print("\n[6] an admin can set an MRF's coordinates, and nothing else can move them")
+_b1 = "brgy-01"
+
+
+def _pin(barangay_id):
+    return next(m for m in geo_service.mrf_locations()["mrfs"]
+                if m["barangay_id"] == barangay_id)
+
+
+results.append(ok("a generated pin is not marked surveyed", not _pin(_b1)["surveyed"]))
+
+geo_service.set_mrf_location(_b1, "9.083100", "125.591000", actor="tester")
+results.append(ok("a set coordinate is stored exactly as given",
+                  (_pin(_b1)["lat"], _pin(_b1)["lng"]) == (9.0831, 125.591)))
+results.append(ok("and the pin now counts as known", _pin(_b1)["surveyed"]))
+
+geo_service.set_mrf_location(_b1, "9\u00b004'58.0\"N", "125\u00b035'27.6\"E", actor="tester")
+results.append(ok("degrees-minutes-seconds are accepted too",
+                  abs(_pin(_b1)["lat"] - 9.082778) < 1e-5))
+
+
+def _refuses(lat, lng, field):
+    try:
+        geo_service.set_mrf_location(_b1, lat, lng, actor="tester")
+    except ValidationError as exc:
+        return field in exc.errors
+    return False
+
+
+results.append(ok("a swapped pair is refused, naming the field",
+                  _refuses("125.591", "9.0831", "lat")))
+results.append(ok("nonsense is refused", _refuses("north-ish", "125.59", "lat")))
+results.append(ok("an empty value is refused", _refuses("", "125.59", "lat")))
+results.append(ok("a refused write changes nothing",
+                  abs(_pin(_b1)["lat"] - 9.082778) < 1e-5))
+
+results.append(ok("clearing falls back to the approximation",
+                  geo_service.clear_mrf_location(_b1) and not _pin(_b1)["surveyed"]))
+results.append(ok("but the pin still has a position", _pin(_b1)["lat"] is not None))
+results.append(ok("clearing an unset one is a no-op",
+                  geo_service.clear_mrf_location(_b1) is False))
 
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{sum(1 for r in results if r)}/{len(results)} checks passed")

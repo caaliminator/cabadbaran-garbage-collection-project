@@ -206,9 +206,10 @@
         // decides where the map opens, so the caveat stands.
         if (data.meta.placeholder) {
           this.note(state,
-            'Barangay boundaries are illustrative approximations, not surveyed '
-            + 'data, so the map may open slightly off. See '
-            + 'docs/DATA_REQUIREMENTS.md.');
+            'Barangay outlines are illustrative shapes drawn around each '
+            + 'barangay\'s published coordinate, not surveyed boundaries. '
+            + 'They decide where the map opens and nothing else. '
+            + 'See docs/DATA_REQUIREMENTS.md.');
         }
       } else {
         // Without geometry there is nothing to frame on, so the map stays on

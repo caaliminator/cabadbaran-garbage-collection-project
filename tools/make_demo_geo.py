@@ -60,6 +60,40 @@ PLACEHOLDER_NOTE = (
     "See docs/DATA_REQUIREMENTS.md."
 )
 
+# The same warning, for a run that had the real barangay coordinates to work
+# from. Weaker, because the positions are now right to within a barangay -- but
+# still a warning, because "in the right barangay" is not "at the facility".
+DERIVED_NOTE = (
+    "PARTLY REAL DATA -- barangay positions are the published coordinates in "
+    "data/geo/barangay_centres.json, so every pin is in the right barangay. "
+    "The MRF pins are NOT surveyed: each is placed a short distance from its "
+    "barangay's centre because the facility's own location is not yet known. "
+    "Boundaries remain generated shapes, not surveyed ones. Replace the MRF "
+    "coordinates with GPS readings taken at each facility and delete the "
+    "_placeholder flag. See docs/DATA_REQUIREMENTS.md."
+)
+
+# Where tools/fetch_barangay_centres.py leaves the real coordinates.
+CENTRES_FILE = "barangay_centres.json"
+
+# Where tools/import_mrf_survey.py leaves coordinates measured at the facility
+# itself. These outrank everything this script can work out on its own.
+SURVEY_FILE = "mrf_surveyed.json"
+
+# The note for a run where some facilities are surveyed and some are not. The
+# count is filled in, because "partly surveyed" is useless without knowing
+# which part -- and every MRF row carries its own `surveyed` flag for anything
+# that needs to tell them apart one at a time.
+MIXED_NOTE = (
+    "PARTLY SURVEYED -- {surveyed} of {total} MRF coordinates were measured at "
+    "the facility and are exact. The remaining {derived} are NOT surveyed: each "
+    "is placed a short distance from its barangay's published centre, which "
+    "puts it in the right barangay but not at the building. Every MRF entry "
+    "carries a `surveyed` flag saying which it is. Boundaries remain generated "
+    "shapes. Add surveyed coordinates with tools/import_mrf_survey.py. "
+    "See docs/DATA_REQUIREMENTS.md."
+)
+
 # Hand-placed approximate centres, (lat, lng). Rural barangays are positioned
 # by rough compass direction from the Poblacion; the twelve Poblacion barangays
 # are laid out on a compact grid further down rather than listed here.
@@ -104,7 +138,11 @@ RADIUS_FRACTION = 0.46     # of the distance to the nearest neighbouring centre
 JITTER = 0.22              # +/- fraction of the radius, per vertex
 SHORE_MARGIN = 0.0022      # keep land this far east of the waterline
 
-MRF_OFFSET = 0.0016        # MRFs sit off-centre, as if beside the barangay road
+# How far an MRF pin sits from its barangay's centre. About 90 m: far enough
+# that the pin is not claiming to BE the barangay's centre point, close enough
+# that it is unmistakably in the right place. It is a stand-in for a survey,
+# and it should look like one.
+MRF_OFFSET = 0.0008
 
 
 def shore_lng(lat: float) -> float:
@@ -129,11 +167,62 @@ def poblacion_centre(index: int) -> tuple[float, float]:
     return lat, lng
 
 
+def surveyed_mrfs() -> dict[str, tuple[float, float]]:
+    """
+    Facilities somebody has actually stood at, by barangay id.
+
+    Empty when nothing has been surveyed yet, which is the state this project
+    started in and the one the rest of the script still has to work in.
+    """
+    path = Path(Config.GEO_DIR) / SURVEY_FILE
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {row["barangay_id"]: (row["lat"], row["lng"])
+            for row in data.get("surveyed", [])
+            if row.get("barangay_id") and row.get("lat") is not None}
+
+
+def real_centres() -> dict[str, tuple[float, float]]:
+    """
+    The published barangay coordinates, if they have been fetched.
+
+    Returns an empty dict when the file is absent, which is what makes this
+    optional: the script still runs on a fresh clone with nothing but its own
+    compass guesses, and quietly gets far better when the real data appears.
+    """
+    path = Path(Config.GEO_DIR) / CENTRES_FILE
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {row["barangay_id"]: (row["lat"], row["lng"])
+            for row in data.get("centres", [])
+            if row.get("barangay_id") and row.get("lat") is not None}
+
+
 def centres(barangays: list[dict]) -> dict[str, tuple[float, float]]:
-    """One centre per barangay id. Unknown names fall back to a ring."""
-    out: dict[str, tuple[float, float]] = {}
+    """
+    One centre per barangay id, real ones first.
+
+    A real coordinate is used exactly as published -- no shoreline clamping,
+    no adjustment. The clamp exists to stop *invented* points drifting into
+    Butuan Bay; applying it to a surveyed figure would be the script overruling
+    the truth with its own rough model of where the coast is.
+    """
+    out: dict[str, tuple[float, float]] = dict(real_centres())
+    if out:
+        print(f"  using {len(out)} real barangay coordinates from {CENTRES_FILE}")
+
     unplaced = []
     for row in barangays:
+        if row["id"] in out:
+            continue
         name = row.get("name") or ""
         if name.startswith("Poblacion"):
             try:
@@ -197,13 +286,28 @@ def build(barangays: list[dict]) -> tuple[dict, list]:
     placed = centres(barangays)
     all_points = list(placed.values())
 
+    # Which warning the files carry depends on what this run had to work from.
+    # Claiming pins were placed "by compass direction from the city centre"
+    # would understate real data as badly as the reverse would overstate it,
+    # and once some facilities are surveyed the note has to say how many --
+    # "approximate" covering a mix of exact and invented figures is the kind
+    # of caveat that gets ignored precisely because it is always there.
+    surveyed = surveyed_mrfs()
+    if surveyed:
+        note = MIXED_NOTE.format(surveyed=len(surveyed), total=len(barangays),
+                                 derived=len(barangays) - len(surveyed))
+    elif real_centres():
+        note = DERIVED_NOTE
+    else:
+        note = PLACEHOLDER_NOTE
+
     zones = {
         "type": "FeatureCollection",
         "_placeholder": True,
-        "_note": PLACEHOLDER_NOTE,
+        "_note": note,
         "features": [],
     }
-    mrfs: list = [{"_placeholder": True, "_placeholder_note": PLACEHOLDER_NOTE}]
+    mrfs: list = [{"_placeholder": True, "_placeholder_note": note}]
 
     for row in sorted(barangays, key=lambda b: b.get("number") or 0):
         bid, name = row["id"], row.get("name")
@@ -222,17 +326,31 @@ def build(barangays: list[dict]) -> tuple[dict, list]:
                          "coordinates": [polygon(bid, centre, radius)]},
         })
 
-        # Nudge the MRF off the polygon centre, deterministically, so the pin
-        # does not sit dead-centre in every barangay.
-        rng = random.Random(f"mrf:{bid}")
-        angle = rng.random() * 2 * math.pi
-        lat, lng = clamp_to_land(centre[0] + MRF_OFFSET * math.sin(angle),
-                                 centre[1] + MRF_OFFSET * math.cos(angle))
+        # A surveyed facility is used exactly as measured -- no nudging, no
+        # clamping. Everything this script knows about where barangays lie is
+        # rougher than somebody standing at the gate with a GPS.
+        if bid in surveyed:
+            lat, lng = surveyed[bid]
+            is_surveyed = True
+        else:
+            # Otherwise: a short, deterministic step off the barangay centre,
+            # so the pin is in the right barangay without pretending to be the
+            # barangay's own centre point.
+            rng = random.Random(f"mrf:{bid}")
+            angle = rng.random() * 2 * math.pi
+            lat, lng = clamp_to_land(centre[0] + MRF_OFFSET * math.sin(angle),
+                                     centre[1] + MRF_OFFSET * math.cos(angle))
+            is_surveyed = False
+
         mrfs.append({
             "barangay_id": bid,
             "name": f"{name} MRF",
             "lat": round(lat, 6),
             "lng": round(lng, 6),
+            # Per-facility, because the file as a whole is now neither surveyed
+            # nor invented. Anything measuring distances has to be able to ask
+            # this of one pin at a time.
+            "surveyed": is_surveyed,
         })
 
     return zones, mrfs
