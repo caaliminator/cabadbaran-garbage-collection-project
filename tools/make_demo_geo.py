@@ -94,6 +94,16 @@ MIXED_NOTE = (
     "See docs/DATA_REQUIREMENTS.md."
 )
 
+SURVEYED_NOTE = (
+    "MRF COORDINATES ARE SURVEYED -- all {total} were measured at the facility "
+    "and are used exactly as supplied; every MRF entry carries `surveyed`: "
+    "true. BOUNDARIES ARE NOT: the barangay outlines in barangay_zones.geojson "
+    "are still generated shapes drawn around each barangay's published centre, "
+    "so they decide where the map opens and nothing more. Re-import or correct "
+    "a facility with tools/import_mrf_survey.py, or from the City Hall Admin "
+    "MRF page. See docs/DATA_REQUIREMENTS.md."
+)
+
 # Hand-placed approximate centres, (lat, lng). Rural barangays are positioned
 # by rough compass direction from the Poblacion; the twelve Poblacion barangays
 # are laid out on a compact grid further down rather than listed here.
@@ -293,7 +303,9 @@ def build(barangays: list[dict]) -> tuple[dict, list]:
     # "approximate" covering a mix of exact and invented figures is the kind
     # of caveat that gets ignored precisely because it is always there.
     surveyed = surveyed_mrfs()
-    if surveyed:
+    if surveyed and len(surveyed) >= len(barangays):
+        note = SURVEYED_NOTE.format(total=len(barangays))
+    elif surveyed:
         note = MIXED_NOTE.format(surveyed=len(surveyed), total=len(barangays),
                                  derived=len(barangays) - len(surveyed))
     elif real_centres():
@@ -307,7 +319,11 @@ def build(barangays: list[dict]) -> tuple[dict, list]:
         "_note": note,
         "features": [],
     }
-    mrfs: list = [{"_placeholder": True, "_placeholder_note": note}]
+    # Only a placeholder while some facility is still positioned by script.
+    # Once the city has surveyed all of them the file holds measured
+    # geography and says so, so the app stops warning about it.
+    mrfs: list = [{"_placeholder": len(surveyed) < len(barangays),
+                   "_placeholder_note": note}]
 
     for row in sorted(barangays, key=lambda b: b.get("number") or 0):
         bid, name = row["id"], row.get("name")
@@ -407,8 +423,14 @@ def main() -> int:
           f"with geometry")
     print(f"  mrfs:  {status['mrfs']['loaded']}/{status['mrfs']['total']} "
           f"located")
-    print("\n  Both files stay marked _placeholder -- the map draws them but "
-          "labels them illustrative.")
+    if status['mrfs']['total'] and not status['mrfs']['placeholder']:
+        print("\n  mrf_locations.json is real data now -- every facility is "
+              "surveyed, so it is no longer marked _placeholder.")
+        print("  barangay_zones.geojson stays marked _placeholder: the "
+              "outlines are still generated shapes.")
+    else:
+        print("\n  Both files stay marked _placeholder -- the map draws them but "
+              "labels them illustrative.")
     return 0
 
 

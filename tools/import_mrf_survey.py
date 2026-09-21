@@ -8,11 +8,12 @@ Paste what the city sends you into a text file, one facility per line, and run
 this. It reads the format they actually write in rather than asking anyone to
 reformat by hand:
 
-    Bayabas  - 9°08'05.49"N 125°35'29.63"E
+    3. Bayabas  - 9°08'05.49"N 125°35'29.63"E
     Poblacion 5 - 9 07 08.16 N, 125 31 59.50 E
     Cabinet, 9.124722, 125.527119
 
-Degrees-minutes-seconds or decimal, comma or dash, degree symbols or not.
+Degrees-minutes-seconds or decimal, comma or dash, degree symbols or
+not, numbered or not. A line starting with # is a note and is skipped.
 
 WHY A SEPARATE FILE
 
@@ -98,6 +99,11 @@ def parse_line(line: str) -> tuple[str, float, float] | None:
         lat, lng = float(decimals[0].group(1)), float(decimals[1].group(1))
         name = line[:decimals[0].start()]
 
+    # The city numbers its lists ("1. Antonio Luna - ..."), and that number
+    # is not part of the facility's name. Stripped here rather than asked to
+    # be removed by hand, because retyping a list of 31 names is exactly how
+    # a coordinate ends up filed under the wrong barangay.
+    name = re.sub(r"^\s*\d{1,3}\s*[.)]\s*", "", name.strip())
     return name.strip(" \t-–—:,"), lat, lng
 
 
