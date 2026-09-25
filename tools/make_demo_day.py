@@ -381,7 +381,8 @@ def collect_day(rng: random.Random, cast: dict, day: str,
     return stats
 
 
-def pickup_day(rng: random.Random, cast: dict, day: str) -> dict:
+def pickup_day(rng: random.Random, cast: dict, day: str,
+               misses: int = 2) -> dict:
     """
     Truck pickups at the MRFs, one missed on purpose so the Carry-Over page and
     the Missed Pickup counter have a real record behind them.
@@ -389,7 +390,12 @@ def pickup_day(rng: random.Random, cast: dict, day: str) -> dict:
     from services import carryover_service, mrf_service
 
     stats = {"collected": 0, "missed": 0, "delivered": 0}
-    missed_once = False
+    # A miss is what creates a carry-over, and the Carry-Over page needs enough
+    # of them to show a Missed row, a Pending one and a Collected one at the
+    # same time. One a day was not enough: later days collected the earlier
+    # misses, so a five-day run ended with a single open row.
+    missed_today = 0
+    MISSES_PER_DAY = misses
 
     for operator in cast["trucks"]:
         assignment = storage.find_one("assignments_truck", operator_id=operator["id"])
@@ -404,7 +410,7 @@ def pickup_day(rng: random.Random, cast: dict, day: str) -> dict:
             if card["load"].get("empty") and rng.random() < .5:
                 continue   # nothing waiting in that MRF, so nothing to pick up
 
-            miss = not missed_once and rng.random() < .5
+            miss = missed_today < MISSES_PER_DAY and rng.random() < .35
             record = storage.insert("mrf_pickups", {
                 "barangay_id": bid,
                 "date": day,
@@ -426,7 +432,7 @@ def pickup_day(rng: random.Random, cast: dict, day: str) -> dict:
             }, operator["id"])
 
             if miss:
-                missed_once = True
+                missed_today += 1
                 stats["missed"] += 1
                 carryover_service.open_for(record, actor=operator["id"])
             else:
@@ -456,6 +462,54 @@ def pickup_day(rng: random.Random, cast: dict, day: str) -> dict:
                 stats["delivered"] += 1
 
     return stats
+
+
+def stage_carry_overs(rng: random.Random, cast: dict) -> dict:
+    """
+    Walk some of the open carry-overs through the stages an admin would.
+
+    A carry-over is Missed until somebody gives it both a truck and a date;
+    with both it is Pending; once the truck actually collects it is Collected.
+    The first and last of those fall out of the day generation on their own.
+    Pending does not -- it is the product of two admin decisions -- so it is
+    made here, through carryover_service, exactly as the Carry-Over page would.
+
+    Two rows are deliberately left short of Pending: one with nothing set and
+    one with a truck but no date. They are what puts a real row behind the
+    "Needs a collection date" note, which is otherwise a feature nobody can see
+    until the city misses a pickup in front of the panel.
+    """
+    from services import carryover_service, vehicle_service
+
+    admin = storage.find_one("users", role="city_admin")
+    if not admin:
+        return {"pending": 0, "missed": 0}
+
+    trucks = sorted(vehicle_service.in_service(vehicle_service.TRUCK))
+    open_rows = [r for r in storage.read("carry_overs")
+                 if carryover_service.stage_of(r) == carryover_service.MISSED]
+    if not trucks or not open_rows:
+        return {"pending": 0, "missed": len(open_rows)}
+
+    rng.shuffle(open_rows)
+    # Keep two behind whatever happens, but never stage away the only row --
+    # a page showing one stage and two empty tabs is what this is fixing.
+    hold_back = min(3, max(0, len(open_rows) - 1))
+    to_stage, left = open_rows[:len(open_rows) - hold_back], open_rows[len(open_rows) - hold_back:]
+
+    tomorrow = timeutil.date_str(timeutil.today() + timedelta(days=1))
+    pending = 0
+    for row in to_stage:
+        carryover_service.reassign(row["id"], rng.choice(trucks), admin["id"])
+        carryover_service.reschedule(row["id"], tomorrow, admin["id"])
+        pending += 1
+
+    # The second one held back gets a truck and no date, so the incomplete
+    # case is on screen rather than only reachable by hand.
+    if len(left) > 1:
+        carryover_service.reassign(left[1]["id"], rng.choice(trucks), admin["id"])
+
+    return {"pending": pending, "missed": len(left)}
 
 
 def resident_reports(rng: random.Random, day: str, count: int = 4) -> int:
@@ -635,12 +689,18 @@ def main() -> int:
             continue
         # Past days finish; today is deliberately still in progress.
         c = collect_day(rng, cast, day, completion=.78 if offset == 0 else .96)
-        m = pickup_day(rng, cast, day)
+        # Today's misses are the ones still open at the end, so today is
+        # where the carry-over backlog comes from.
+        m = pickup_day(rng, cast, day, misses=5 if offset == 0 else 2)
         r = resident_reports(rng, day, count=4 if offset == 0 else 2)
         print(f"  {day}      {c['collected']} collected, "
               f"{c['not_collected']} refused, {m['collected']} MRFs picked up, "
               f"{m['missed']} missed, {m['delivered']} landfill runs, "
               f"{r} resident reports")
+
+    staged = stage_carry_overs(rng, cast)
+    print(f"  carry-overs     {staged['pending']} rescheduled and pending, "
+          f"{staged['missed']} still unassigned")
 
     day = timeutil.date_str(today)
     on_duty = put_collectors_on_duty(rng, cast)
