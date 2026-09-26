@@ -7,6 +7,12 @@
 
 <div class="page__head">
   <div>
+    {% if request.args.get('back') == 'history' %}
+      <a class="card__link" href="{{ url_for('brgy.history') }}">
+        <span style="display:flex;transform:rotate(180deg)">{{ icon('arrow-right', 'icon--sm') }}</span>
+        Back to History
+      </a>
+    {% endif %}
     <h1 class="page__title">Collections</h1>
     <p class="page__sub">
       Brgy. {{ barangay }} · {{ selected_date|date_display }}
@@ -52,14 +58,14 @@
 
   {# ---- Collectors table ---------------------------------------------- #}
   <div class="stack">
-    <section class="card">
+    <section class="card" data-table-controller="brgyCollectors">
       <div class="card__head">
         <h2 class="card__title">Barangay Collectors</h2>
         <span class="badge badge--info">{{ collectors|length }}</span>
       </div>
 
       <div class="table-wrap">
-        <table class="table">
+        <table class="table" id="brgyCollectors">
           <caption class="sr-only">Tricycle collectors and their totals for this date</caption>
           <thead>
             <tr>

@@ -18,6 +18,142 @@
   const $  = (sel, ctx = document) => ctx.querySelector(sel);
   const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
 
+  /* ---- Notification focus (phones) ---------------------------------------
+     A new alert on a phone takes the screen: the page blurs and the alert
+     comes forward as a card, until it is viewed or dismissed. Alerts that
+     arrive together wait their turn ("1 of 3") rather than stacking. Only
+     below 760px -- a desktop keeps the toast. Notifications only; nothing
+     else on the site uses this. */
+  const NoticeFocus = {
+    queue: [],
+    node: null,
+    lastFocus: null,
+
+    phone() {
+      return window.matchMedia('(max-width: 760px)').matches;
+    },
+
+    show(n, href) {
+      if (!n || !this.phone()) return false;
+      this.queue.push({ n, href });
+      if (!this.node) this.next();
+      else this.updateCount();
+      return true;
+    },
+
+    next() {
+      const item = this.queue.shift();
+      if (!item) return this.close();
+      const { n, href } = item;
+      const tone = ['danger', 'warning', 'success'].includes(n.tone) ? n.tone : 'info';
+
+      if (!this.node) {
+        this.lastFocus = document.activeElement;
+        this.node = document.createElement('div');
+        this.node.className = 'notice-focus';
+        this.node.setAttribute('role', 'alertdialog');
+        this.node.setAttribute('aria-modal', 'true');
+        this.node.setAttribute('aria-labelledby', 'notice-focus-title');
+        this.node.setAttribute('aria-describedby', 'notice-focus-body');
+        // A tap on the blurred page, outside the card, dismisses it.
+        this.node.addEventListener('click', (e) => {
+          if (e.target === this.node) this.dismiss();
+        });
+        document.addEventListener('keydown', this.onKey = (e) => {
+          if (e.key === 'Escape') this.dismiss();
+        });
+        document.body.appendChild(this.node);
+        document.body.classList.add('is-notice-focused');
+      }
+
+      // Built with textContent throughout: a title or message can carry a
+      // barangay or owner name, and innerHTML would make that markup.
+      const card = document.createElement('div');
+      card.className = `notice-focus__card notice-focus__card--${tone}`;
+
+      const head = document.createElement('div');
+      head.className = 'notice-focus__head';
+      const icon = document.createElement('span');
+      icon.className = 'notice-focus__icon';
+      icon.setAttribute('aria-hidden', 'true');
+      const bell = document.querySelector('.bell svg');
+      if (bell) icon.appendChild(bell.cloneNode(true));
+
+      const text = document.createElement('div');
+      text.style.cssText = 'flex:1;min-width:0';
+      const kicker = document.createElement('p');
+      kicker.className = 'notice-focus__kicker';
+      kicker.dataset.noticeCount = '';
+      const title = document.createElement('p');
+      title.className = 'notice-focus__title';
+      title.id = 'notice-focus-title';
+      title.textContent = n.title || 'New notification';
+      const body = document.createElement('p');
+      body.className = 'notice-focus__body';
+      body.id = 'notice-focus-body';
+      body.textContent = n.message || '';
+      text.append(kicker, title, body);
+      head.append(icon, text);
+
+      const actions = document.createElement('div');
+      actions.className = 'notice-focus__actions';
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'btn btn--secondary';
+      dismiss.textContent = this.queue.length ? 'Next' : 'Dismiss';
+      dismiss.addEventListener('click', () => this.dismiss());
+      actions.appendChild(dismiss);
+      if (href) {
+        const view = document.createElement('a');
+        view.className = 'btn btn--primary';
+        view.href = href;
+        view.textContent = 'View';
+        actions.appendChild(view);
+      }
+
+      card.append(head, actions);
+      this.node.replaceChildren(card);
+      this.updateCount();
+
+      // Two frames, so the opening state is painted before it animates.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (this.node) this.node.dataset.open = 'true';
+      }));
+      (href ? actions.lastChild : dismiss).focus({ preventScroll: true });
+    },
+
+    updateCount() {
+      if (!this.node) return;
+      const kicker = this.node.querySelector('[data-notice-count]');
+      if (kicker) {
+        kicker.textContent = this.queue.length
+          ? `New alert · ${this.queue.length} more waiting`
+          : 'New alert';
+      }
+      const dismiss = this.node.querySelector('.notice-focus__actions .btn--secondary');
+      if (dismiss) dismiss.textContent = this.queue.length ? 'Next' : 'Dismiss';
+    },
+
+    dismiss() {
+      if (this.queue.length) this.next();
+      else this.close();
+    },
+
+    close() {
+      if (!this.node) return;
+      const node = this.node;
+      this.node = null;
+      node.dataset.open = 'false';
+      document.body.classList.remove('is-notice-focused');
+      if (this.onKey) document.removeEventListener('keydown', this.onKey);
+      // Let the fade-out play before removing it.
+      setTimeout(() => node.remove(), 260);
+      if (this.lastFocus && this.lastFocus.focus) this.lastFocus.focus({ preventScroll: true });
+    },
+  };
+
+  window.GCTSNoticeFocus = NoticeFocus;
+
   const Live = {
     socket: null,
     connected: false,
@@ -90,7 +226,20 @@
       const list = $('[data-notification-list]');
       if (list) list.prepend(this.buildRow(list, n));
 
-      this.toast(n.message, n.tone);
+      // On a phone the alert takes focus; on a desktop it stays a toast.
+      if (!NoticeFocus.show(n, this.linkFor(n))) this.toast(n.message, n.tone);
+    },
+
+    /* Where tapping this alert goes, or '' when it leads nowhere for this
+       viewer. Shared by the bell row and the focused card, so both agree. */
+    linkFor(n) {
+      const list = $('[data-notification-list]');
+      if (!list || !n || !n.id) return '';
+      const template = list.dataset.notificationOpen || '';
+      const role = list.dataset.viewerRole || '';
+      const linkable = template
+        && Array.isArray(n.link_roles) && n.link_roles.indexOf(role) !== -1;
+      return linkable ? template.replace('__id__', encodeURIComponent(n.id)) : '';
     },
 
     /* An alert that arrives over the socket has to look and behave exactly
@@ -99,14 +248,12 @@
        alone refused to open, would read as a glitch. */
     buildRow(list, n) {
       const tone = n.tone === 'danger' || n.tone === 'warning' ? n.tone : 'info';
-      const template = list.dataset.notificationOpen || '';
-      const role = list.dataset.viewerRole || '';
-      const linkable = template && n.id
-        && Array.isArray(n.link_roles) && n.link_roles.indexOf(role) !== -1;
+      const href = this.linkFor(n);
+      const linkable = Boolean(href);
 
       const row = document.createElement(linkable ? 'a' : 'div');
       row.className = 'pop__item pop__item--unread' + (linkable ? ' pop__item--link' : '');
-      if (linkable) row.href = template.replace('__id__', encodeURIComponent(n.id));
+      if (linkable) row.href = href;
 
       const mark = document.createElement('span');
       mark.className = `stat__icon stat__icon--${tone}`;
@@ -124,7 +271,24 @@
       text.textContent = n.message || '';
       body.append(title, text);
 
-      row.append(mark, body);
+      // The glyph, the time and the arrow the server-rendered rows carry.
+      // Icons are drawn server-side, so the bell's own glyph stands in; the
+      // arrow is copied from a rendered row when one is on the page.
+      const bell = $('.bell svg');
+      if (bell) {
+        const glyph = bell.cloneNode(true);
+        glyph.setAttribute('class', 'icon icon--sm');
+        mark.appendChild(glyph);
+      }
+      const time = document.createElement('time');
+      time.className = 'alert-item__time';
+      time.textContent = 'Just now';
+
+      row.append(mark, body, time);
+      if (linkable) {
+        const go = $('.pop__item__go', list);
+        if (go) row.appendChild(go.cloneNode(true));
+      }
       return row;
     },
 

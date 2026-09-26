@@ -415,6 +415,32 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 .entry:last-child { border-bottom: none; }
+
+/* The daily History Records lists. Every card there has the same shape, so
+   the faint default rule let one day run into the next; a full-strength line
+   and a little more space makes each day read as its own block. */
+.history-list .entry {
+  border-bottom: 2px solid var(--border);
+}
+.history-list .entry:last-child { border-bottom: none; }
+
+/* A day card that fills the report form when clicked. */
+.entry--pickable {
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.entry--pickable:hover { background: var(--bg-hover); }
+.entry--pickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The day or days the report form is currently set to. An inset bar on the
+   leading edge rather than a border, so selecting a card never shifts it. */
+.entry--pickable.is-selected {
+  background: var(--tone-info-bg);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
 .entry__title { font-size: var(--text-base); font-weight: 650; color: var(--fg-strong); }
 .entry__sub { font-size: var(--text-sm); color: var(--fg-muted); margin-top: 2px; }
 

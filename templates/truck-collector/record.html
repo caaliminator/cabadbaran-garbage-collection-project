@@ -8,8 +8,9 @@
    MRF pickup entry.
 
    The operator enters no quantities: the load shown here is computed from that
-   barangay's collection entries since its last pickup, so the figure the truck
-   carries is the figure the tricycles brought in.
+   barangay's collection entries for today, so the figure the truck carries is
+   the figure the tricycles brought in. A carry-over stop shows the load its
+   missed day left behind instead.
 
    The mockup's Collected frame has no SAVE button (OPEN ITEM 5). It has one
    here -- a consequential record with no submit is a mockup omission, not a
@@ -23,10 +24,27 @@
       <span style="display:flex;transform:rotate(180deg)">{{ icon('arrow-right', 'icon--sm') }}</span>
       Back to MRF list
     </a>
-    <h1 class="page__title" style="margin-top:var(--sp-2)">{{ card.mrf_name }}</h1>
+    <h1 class="page__title" style="margin-top:var(--sp-2)">
+      {{ card.mrf_name }}
+      {% if card.is_carry_over %}<span class="badge badge--warning">Carry-over</span>{% endif %}
+    </h1>
   </div>
   <div class="page__actions">{{ status(card.status) }}</div>
 </div>
+
+{% if card.is_carry_over %}
+  <div class="notice notice--warning" role="status">
+    {{ icon('repeat', 'icon--sm') }}
+    <div>
+      <p class="strong">Carry-over from {{ card.source_schedule_day }}{% if card.covered_dates %}, {{ card.covered_dates[0]|date_display }}{% endif %}</p>
+      <p class="text-sm">
+        This is an earlier day's {{ card.waste_type }} load that was not
+        collected, arranged for your truck today. It is recorded separately
+        from today's stop at this MRF.
+      </p>
+    </div>
+  </div>
+{% endif %}
 
 {% if card.delivered %}
   <div class="notice" role="status">
@@ -52,6 +70,13 @@
 <form method="post" class="stack" data-validate novalidate
       {% if card.delivered %}inert{% endif %}>
   {{ csrf_field() }}
+  {# The day this stop was opened for: a pickup belongs to that day's list,
+     so one submitted after midnight is refused, not filed under the next
+     day's MRF card. #}
+  <input type="hidden" name="form_date" value="{{ card.date }}">
+  {% if card.is_carry_over %}
+    <input type="hidden" name="carry_over_id" value="{{ card.carry_over_id }}">
+  {% endif %}
 
   <div class="split">
 
@@ -69,11 +94,8 @@
               </p>
               {% if card.covered_dates %}
                 <p class="text-sm muted">
-                  Covers collections from
-                  {{ card.covered_dates[0]|date_display }}
-                  {%- if card.covered_dates|length > 1 %}
-                    to {{ card.covered_dates[-1]|date_display }}
-                  {%- endif %}.
+                  {{ "Missed load from" if card.is_carry_over else "Today's collections," }}
+                  {{ card.covered_dates[0]|date_display }}.
                 </p>
               {% endif %}
             </div>
@@ -162,9 +184,9 @@
             </p>
           {% else %}
             <p class="text-sm muted">
-              No collections have been recorded into this MRF since its last
-              pickup, so there is nothing to collect. You can still record the
-              visit as Not Collected if you went and found nothing.
+              No collections have been recorded into this MRF today, so there
+              is nothing to collect. You can still record the visit as Not
+              Collected if you went and found nothing.
             </p>
           {% endif %}
 
@@ -183,11 +205,19 @@
           <div class="notice notice--warning" role="status" style="margin:0">
             {{ icon('alert', 'icon--sm') }}
             <div>
-              <p class="strong">This opens a carry-over</p>
-              <p class="text-sm">
-                The load stays in the MRF and the City Hall Admin is asked to
-                reassign or reschedule the pickup.
-              </p>
+              {% if card.is_carry_over %}
+                <p class="strong">This sends the carry-over back</p>
+                <p class="text-sm">
+                  The load stays in the MRF and the City Hall Admin is asked to
+                  arrange it again.
+                </p>
+              {% else %}
+                <p class="strong">This opens a carry-over</p>
+                <p class="text-sm">
+                  The load stays in the MRF and the City Hall Admin is asked to
+                  reassign or reschedule the pickup.
+                </p>
+              {% endif %}
             </div>
           </div>
 

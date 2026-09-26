@@ -115,6 +115,11 @@ ok("load snapshotted onto the pickup", pickup["load"]["sacks"] == expected_sacks
 ok("truck code stamped from the assignment", pickup["truck_code"] == "TRK-01")
 ok("covered dates recorded", pickup["covered_dates"] == [TODAY])
 ok("card now reads collected", mrf_service.mrf_card(B1)["status"] == "Collected from MRF")
+fails("a stop opened for another day is refused, not filed under today",
+      lambda: mrf_service.save_pickup(Form({"status": "Collected from MRF",
+                                            "form_date": YESTERDAY}), B2, OP),
+      "form", "was opened for")
+ok("and nothing was recorded for that MRF", mrf_service.regular_pickup(B2) is None)
 fails("a reason is required to mark not collected",
       lambda: mrf_service.save_pickup(Form({"status": "Not Collected"}), B2, OP), "reason")
 fails("invented reason rejected",
@@ -122,17 +127,29 @@ fails("invented reason rejected",
                                             "reason": "Could not be bothered"}), B2, OP),
       "reason")
 
-print("\n[3] the MRF empties on pickup")
-ok("nothing waiting after a successful pickup",
-   mrf_service.uncollected_entries(B1) == [])
-ok("a re-visit shows an empty MRF, not the same load again",
+print("\n[3] every day is its own list")
+ok("a re-visit shows the load that was recorded, not a larger one",
    mrf_service.mrf_card(B1)["load"]["sacks"] == expected_sacks)  # snapshot preserved
 p3 = household("Household C")
 collect(p3, 4, 0)
-ok("new collections accumulate for the next pickup",
-   collection_service.totals(mrf_service.uncollected_entries(B1))["sacks"] == 4)
 ok("the recorded pickup keeps its original load",
    storage.get("mrf_pickups", pickup["id"])["load"]["sacks"] == expected_sacks)
+ok("a day's batch is that day's collections only",
+   all(e["date"] == TODAY for e in mrf_service.batch_entries(B1)))
+_tomorrow = timeutil.date_str(timeutil.today() + timedelta(days=1))
+ok("tomorrow's card starts Pending and empty -- nothing carries into it",
+   mrf_service.mrf_card(B1, _tomorrow)["status"] == "Pending"
+   and mrf_service.mrf_card(B1, _tomorrow)["load"]["empty"])
+_old = collect(household("Household Old"), 8, 0)
+storage.update("collections", _old["id"], {"date": YESTERDAY})
+ok("yesterday's waste is never mixed into today's card",
+   mrf_service.mrf_card(B2)["load"]["empty"]
+   and _old["id"] not in {e["id"] for e in mrf_service.batch_entries(B1)})
+ok("a card's waste type is that day's own",
+   mrf_service.mrf_card(B1)["waste_type"]
+   in (schedule_service.for_date().get("short"),
+       schedule_service.for_date().get("waste_type")))
+storage.delete("collections", _old["id"])
 
 print("\n[4] running load and delivery reset")
 load = mrf_service.running_load(OP["id"])
@@ -168,11 +185,16 @@ print("\n[5] carry-over opens on a missed pickup")
 storage.write("mrf_pickups", [])
 storage.write("deliveries", [])
 storage.write("carry_overs", [])
+storage.write("collections", [])
+# Yesterday's batch, missed yesterday -- so today's list can be shown to
+# stay separate from it.
 p_miss = household("Household H")
-collect(p_miss, 12, 0)
+_e = collect(p_miss, 12, 0)
+storage.update("collections", _e["id"], {"date": YESTERDAY})
 missed = mrf_service.save_pickup(Form({"status": "Not Collected",
                                        "reason": "Road inaccessible",
-                                       "note": "Bridge under repair"}), B1, OP)
+                                       "note": "Bridge under repair"}), B1, OP,
+                                 date=YESTERDAY)
 co = carryover_service.outstanding_for(B1)
 ok("a missed pickup opens a carry-over", co is not None)
 ok("carry-over starts as a Missed Collection with no truck assigned",
@@ -184,18 +206,30 @@ ok("the row says what it is waiting for",
    carryover_service.listing(carryover_service.MISSED)[0]["needs_truck"])
 ok("carry-over remembers the original truck", co["original_truck"] == "TRK-01")
 ok("missed pickup adds nothing to the running load",
-   mrf_service.running_load(OP["id"])["empty"])
-ok("the load stays waiting in the MRF",
-   collection_service.totals(mrf_service.uncollected_entries(B1))["sacks"] > 0)
+   mrf_service.running_load(OP["id"], YESTERDAY)["empty"])
+ok("the carry-over keeps the load that day left in the MRF",
+   co["waste"]["sacks"] == 12)
+ok("and it is that one day's batch, with that day's waste type",
+   co["batch_date"] == YESTERDAY
+   and co["source_schedule_day"] == timeutil.weekday_name(YESTERDAY))
 
 mrf_service.save_pickup(Form({"status": "Not Collected",
-                              "reason": "Truck breakdown"}), B1, OP)
-ok("a second miss updates the same carry-over rather than opening another",
+                              "reason": "Truck breakdown"}), B1, OP, date=YESTERDAY)
+ok("correcting the same day's miss updates it rather than opening another",
    storage.count("carry_overs", barangay_id=B1) == 1)
-ok("the miss count is tracked",
-   carryover_service.outstanding_for(B1)["missed_count"] == 2)
+ok("and does not count as a second miss",
+   carryover_service.outstanding_for(B1)["missed_count"] == 1
+   and carryover_service.outstanding_for(B1)["reason"] == "Truck breakdown")
 
-print("\n[6] reassign, reschedule, auto-close")
+# Today: a fresh batch at the same MRF, collected on the regular round.
+collect(household("Household Today"), 5, 0)
+_today_pickup = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP)
+ok("today's regular pickup carries today's batch only",
+   _today_pickup["load"]["sacks"] == 5)
+ok("and it does not close yesterday's carry-over -- that is its own stop",
+   storage.get("carry_overs", co["id"])["status"] == carryover_service.MISSED)
+
+print("\n[6] reassign, reschedule, collect the carry-over stop")
 fails("reassigning to an unregistered truck is refused",
       lambda: carryover_service.reassign(co["id"], "TRK-99", ADMIN), "truck")
 carryover_service.reassign(co["id"], "TRK-02", ADMIN)
@@ -204,11 +238,8 @@ ok("a truck with no date is still a Missed Collection",
    storage.get("carry_overs", co["id"])["status"] == carryover_service.MISSED)
 ok("and the row now says it is the date that is missing",
    carryover_service.listing(carryover_service.MISSED)[0]["needs_date"])
-ok("the new truck now sees it as a stop",
-   any(c["barangay_id"] == B1 for c in mrf_service.cards_for_operator(OP2["id"])))
-ok("the stop is flagged as a carry-over",
-   any(c["barangay_id"] == B1 and c["is_carry_over"]
-       for c in mrf_service.cards_for_operator(OP2["id"])))
+ok("with no date it is not on any truck's list yet",
+   mrf_service.carry_over_cards_for_operator(OP2["id"]) == [])
 
 fails("rescheduling to a past date is refused",
       lambda: carryover_service.reschedule(co["id"], "2020-01-01", ADMIN),
@@ -225,17 +256,45 @@ ok("the Pending view lists it, the Missed view no longer does",
 _c = carryover_service.counts()
 ok("the counts split the two open stages",
    _c["missed"] == 0 and _c["pending"] == 1 and _c["open"] == 1)
-ok("a future-dated carry-over drops off today's route",
-   not any(c["barangay_id"] == B1 and c.get("is_carry_over")
-           for c in mrf_service.cards_for_operator(OP2["id"])))
+ok("a future-dated carry-over is not on today's list",
+   mrf_service.carry_over_cards_for_operator(OP2["id"]) == [])
 
 carryover_service.reschedule(co["id"], TODAY, ADMIN)
-closing = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP)
+_stops = mrf_service.carry_over_cards_for_operator(OP2["id"])
+ok("arranged for today, the truck sees it as a carry-over stop",
+   [c["carry_over_id"] for c in _stops] == [co["id"]] and _stops[0]["is_carry_over"])
+ok("listed apart from its regular stops, not folded into them",
+   not any(c["barangay_id"] == B1 for c in mrf_service.cards_for_operator(OP2["id"])))
+ok("carrying the missed day's own waste type and load",
+   _stops[0]["source_schedule_day"] == timeutil.weekday_name(YESTERDAY)
+   and _stops[0]["load"]["sacks"] == 12)
+
+# The arranged stop is missed too: back to the admin, truck kept, date cleared.
+mrf_service.save_pickup(Form({"status": "Not Collected", "reason": "Road inaccessible"}),
+                        B1, OP2, carry_over_id=co["id"])
+_again = storage.get("carry_overs", co["id"])
+ok("missing the carry-over stop sends it back to Missed Collection",
+   _again["status"] == carryover_service.MISSED
+   and _again["reschedule_date"] is None and _again["current_truck"] == "TRK-02")
+ok("and that counts as its second miss", _again["missed_count"] == 2)
+from services import notification_service as _ns
+ok("City Hall is told it has to arrange it again",
+   any(n["title"] == "Carry-over missed again"
+       for n in _ns.for_user(storage.get("users", ADMIN))))
+ok("and so is the barangay whose MRF it is",
+   any(n["title"] == "Rescheduled pickup missed"
+       for n in _ns.for_user(COL)))
+
+carryover_service.reschedule(co["id"], TODAY, ADMIN)
+closing = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP2,
+                                  carry_over_id=co["id"])
 closed = storage.get("carry_overs", co["id"])
-ok("collecting the MRF closes the carry-over", closed["status"] == "Collected")
+ok("collecting the carry-over stop closes it", closed["status"] == "Collected")
 ok("the closing pickup is recorded on it",
    closed["collected_by_pickup"] == closing["id"])
-ok("the carried load joined that day's totals", closing["load"]["sacks"] > 0)
+ok("the carried load is the missed day's load", closing["load"]["sacks"] == 12)
+ok("it goes onto the truck that collected it",
+   mrf_service.running_load(OP2["id"])["sacks"] == 12)
 ok("no carry-over is left outstanding", carryover_service.outstanding_for(B1) is None)
 fails("a closed carry-over cannot be reassigned",
       lambda: carryover_service.reassign(co["id"], "TRK-02", ADMIN), "form",
@@ -261,18 +320,27 @@ ok("and it carries a location and a note field for the dialog",
 
 # The same pickup, seen from the MRF page: the spec asks for the two views to
 # agree, which they do by both reading mrf_service.pickup_view.
-_mrf_row = next(r for r in mrf_service.city_listing(TODAY, barangay_id=B1))
+_b1_rows = mrf_service.city_listing(TODAY, barangay_id=B1)
+ok("the MRF page lists the collected carry-over as its own row that day",
+   len(_b1_rows) == 2 and sum(1 for r in _b1_rows if r["is_carry_over"]) == 1)
+_mrf_row = next(r for r in _b1_rows if r["is_carry_over"])
 ok("the MRF page flags the pickup that collected a carry-over",
    _mrf_row["carry_over"] is not None)
 ok("and shows the same two trucks the Carry-Over page does",
    _mrf_row["carry_over"]["original_truck"] == _closed_detail["original_truck"]
    and _mrf_row["carry_over"]["current_truck"] == _closed_detail["current_truck"])
+ok("the day's regular pickup is not flagged",
+   next(r for r in _b1_rows if not r["is_carry_over"])["carry_over"] is None)
 ok("an MRF pickup with no carry-over is not flagged",
    mrf_service.city_listing(TODAY, barangay_id=B2)[0]["carry_over"] is None)
+ok("a carry-over stop does not count as the barangay's regular pickup",
+   mrf_service.city_counts()["collected"] == 1
+   and mrf_service.city_counts()["carry_overs_collected"] == 1)
 
 # A fresh miss, to check the two open stages report their own shape.
 storage.write("carry_overs", [])
 storage.write("mrf_pickups", [])
+storage.write("collections", [])
 _p = household("Household Z")
 collect(_p, 4, 0)
 _missed = mrf_service.save_pickup(Form({"status": "Not Collected",
@@ -286,8 +354,8 @@ ok("a missed carry-over reports the attempt that failed",
    and _missed_detail["note"] == "Gearbox failed")
 ok("it names the operator who tried",
    _missed_detail["operator"] == storage.get("users", OP["id"])["full_name"])
-ok("and its load reads zero -- the waste is still in the MRF",
-   _missed_detail["load"]["total"] == "0")
+ok("and its load is what that day left in the MRF",
+   _missed_detail["load"]["sacks"] == 4)
 
 carryover_service.reassign(_co["id"], "TRK-02", ADMIN)
 carryover_service.reschedule(_co["id"], TODAY, ADMIN)
@@ -298,7 +366,7 @@ ok("a pending carry-over reports the date it was moved to",
 ok("it distinguishes the original truck from the current one",
    _pending_detail["original_truck"] != _pending_detail["current_truck"]
    and _pending_detail["current_truck"].startswith("TRK-02"))
-ok("its load is still zero", _pending_detail["load"]["total"] == "0")
+ok("it still carries that load", _pending_detail["load"]["sacks"] == 4)
 ok("and it says which miss this is",
    _pending_detail["misses_display"].startswith("1st miss — "))
 
@@ -369,6 +437,20 @@ ok("an empty MRF is not auto-missed",
    not any(r["barangay_id"] == "brgy-20" for r in created))
 ok("running it twice does not duplicate",
    mrf_service.auto_mark_missed(YESTERDAY) == [])
+
+# A carry-over arranged for yesterday that nobody collected: the arrangement
+# lapsed with the day, so it goes back to the admin rather than lingering on
+# a truck's list.
+_lapsed = carryover_service.outstanding_for(B1)
+carryover_service._restage(_lapsed, {"current_truck": "TRK-02",
+                                     "reschedule_date": YESTERDAY}, ADMIN)
+_closed_off = mrf_service.auto_mark_missed(YESTERDAY)
+_lapsed = storage.get("carry_overs", _lapsed["id"])
+ok("a carry-over whose arranged day passed goes back to Missed Collection",
+   len(_closed_off) == 1 and _lapsed["status"] == carryover_service.MISSED
+   and _lapsed["reschedule_date"] is None and _lapsed["missed_count"] == 2)
+ok("and is not on the truck's list today",
+   mrf_service.carry_over_cards_for_operator(OP2["id"]) == [])
 
 print("\n[8] scope and integrity")
 ok("an operator only sees their assigned MRFs",

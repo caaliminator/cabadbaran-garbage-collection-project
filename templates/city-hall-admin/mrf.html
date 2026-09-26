@@ -1,4 +1,6 @@
 {% extends 'shell.html' %}
+{% from 'partials/mrf_detail.html' import pickup_button, delivery_button,
+                                          pickup_modal, delivery_modal %}
 {% from 'partials/icons.html' import icon %}
 {% from 'partials/macros.html' import stat, status, filter_select, th, empty %}
 
@@ -152,29 +154,7 @@
               {% endif %}
             </td>
             <td class="table__actions">
-              <button type="button" class="btn btn--icon"
-                      data-modal-open="mrf-detail"
-                      data-set-name="{{ r.mrf_name }}"
-                      data-set-source="{{ r.source_schedule_day }}"
-                      data-set-waste="{{ r.waste_type }}"
-                      data-set-truck="{{ r.truck }}"
-                      data-set-operator="{{ r.operator }}"
-                      data-set-carryover="{{ 'Yes' if r.carry_over else '' }}"
-                      data-set-original="{{ r.carry_over.original_truck if r.carry_over else '—' }}"
-                      data-set-current="{{ r.carry_over.current_truck if r.carry_over else '—' }}"
-                      data-set-misses="{{ r.carry_over.misses_display if r.carry_over else '—' }}"
-                      data-set-total="{{ r.load.total }}"
-                      data-set-status="{{ r.status }}"
-                      data-set-date="{{ r.date_display }}"
-                      data-set-time="{{ r.time_display or '—' }}"
-                      data-set-place="{{ r.location.name or r.mrf_name }}"
-                      data-set-coords="{{ r.location.coords or '—' }}"
-                      data-set-coordsource="{{ r.location.source }}"
-                      data-set-reason="{{ r.reason or '—' }}"
-                      data-set-note="{{ r.note or 'No notes recorded.' }}"
-                      aria-label="View pickup details for {{ r.barangay }}">
-                {{ icon('eye', 'icon--sm') }}
-              </button>
+              {{ pickup_button(r, r.barangay) }}
 
               <button type="button" class="btn btn--icon"
                       data-modal-open="mrf-location"
@@ -201,14 +181,14 @@
 </section>
 
 {# ---- Delivered to landfill --------------------------------------------- #}
-<section class="card">
+<section class="card" data-table-controller="deliveryTable">
   <div class="card__head">
     <h2 class="card__title">Delivered to Landfill</h2>
     <span class="badge badge--info">{{ deliveries|length }}</span>
   </div>
 
   <div class="table-wrap">
-    <table class="table">
+    <table class="table" id="deliveryTable">
       <caption class="sr-only">Loads delivered to final disposal</caption>
       <thead>
         <tr>
@@ -233,17 +213,7 @@
             </td>
             <td data-label="Time" class="muted text-xs">{{ d.time_display }}</td>
             <td class="table__actions">
-              <button type="button" class="btn btn--icon"
-                      data-modal-open="delivery-detail"
-                      data-set-name="{{ d.truck_code }}"
-                      data-set-operator="{{ d.operator }}"
-                      data-set-total="{{ d.load.total }}"
-                      data-set-mrfs="{{ d.barangays|join(', ') }}"
-                      data-set-date="{{ d.date_display }}"
-                      data-set-time="{{ d.time_display or '—' }}"
-                      aria-label="View delivery by {{ d.truck_code }}">
-                {{ icon('eye', 'icon--sm') }}
-              </button>
+              {{ delivery_button(d) }}
             </td>
           </tr>
         {% else %}
@@ -260,58 +230,7 @@
 </section>
 
 {# ---- Dialogs ---------------------------------------------------------- #}
-<div class="modal" id="mrf-detail" data-open="false" role="dialog"
-     aria-modal="true" aria-labelledby="mrf-detail-title" aria-hidden="true">
-  <div class="modal__panel">
-    <div class="modal__head">
-      <h2 id="mrf-detail-title" data-fill="name">MRF pickup</h2>
-      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
-        {{ icon('x', 'icon--sm') }}
-      </button>
-    </div>
-    <div class="modal__body">
-      <div class="grid grid--2">
-        <div class="kv"><span class="kv__key">Date</span><span class="kv__val" data-fill="date">—</span></div>
-        <div class="kv"><span class="kv__key">Time</span><span class="kv__val" data-fill="time">—</span></div>
-        <div class="kv"><span class="kv__key">Source Schedule Day</span><span class="kv__val" data-fill="source">—</span></div>
-        <div class="kv"><span class="kv__key">Waste Type</span><span class="kv__val" data-fill="waste">—</span></div>
-        {# An ordinary pickup has one truck: the one assigned to it. A pickup
-           that closed a carry-over has two -- the truck that was originally
-           meant to take the load and the one that actually did -- and the
-           Carry-Over page shows the same pair for the same record. Both are
-           rendered; `data-show-when` hides whichever pair does not apply to
-           the row that was clicked. #}
-        <div class="kv" data-show-when="carryover:"><span class="kv__key">Assigned Truck</span><span class="kv__val mono" data-fill="truck">—</span></div>
-        <div class="kv" data-show-when="carryover:"><span class="kv__key">Operator</span><span class="kv__val" data-fill="operator">—</span></div>
-        <div class="kv" data-show-when="carryover:Yes"><span class="kv__key">Original Truck</span><span class="kv__val" data-fill="original">—</span></div>
-        <div class="kv" data-show-when="carryover:Yes"><span class="kv__key">Current Truck</span><span class="kv__val" data-fill="current">—</span></div>
-        <div class="kv"><span class="kv__key">Load</span><span class="kv__val" data-fill="total">—</span></div>
-        <div class="kv"><span class="kv__key">Status</span><span class="kv__val" data-fill="status">—</span></div>
-        <div class="kv"><span class="kv__key">Reason</span><span class="kv__val" data-fill="reason">—</span></div>
-        <div class="kv" data-show-when="carryover:Yes">
-          <span class="kv__key">Date of missed pick-up</span>
-          <span class="kv__val text-sm" data-fill="misses">—</span>
-        </div>
-      </div>
-      <div class="kv" style="margin-top:var(--sp-3)">
-        <span class="kv__key">Location</span>
-        <span class="kv__val">
-          <span data-fill="place">—</span>
-          <span class="sub"><span class="mono" data-fill="coords">—</span>
-            · <span data-fill="coordsource">—</span></span>
-        </span>
-      </div>
-
-      <div class="kv" style="margin-top:var(--sp-3)">
-        <span class="kv__key">Note</span>
-        <span class="kv__val text-sm" data-fill="note">—</span>
-      </div>
-    </div>
-    <div class="modal__foot">
-      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
-    </div>
-  </div>
-</div>
+{{ pickup_modal() }}
 
 {# ---- Set MRF location -------------------------------------------------
    Coordinates are the one piece of a facility's record the system cannot work
@@ -387,31 +306,6 @@
   </form>
 </div>
 
-<div class="modal" id="delivery-detail" data-open="false" role="dialog"
-     aria-modal="true" aria-labelledby="delivery-detail-title" aria-hidden="true">
-  <div class="modal__panel">
-    <div class="modal__head">
-      <h2 id="delivery-detail-title">Delivery — <span data-fill="name">truck</span></h2>
-      <button type="button" class="btn btn--icon" data-modal-close aria-label="Close dialog">
-        {{ icon('x', 'icon--sm') }}
-      </button>
-    </div>
-    <div class="modal__body">
-      <div class="grid grid--2">
-        <div class="kv"><span class="kv__key">Operator</span><span class="kv__val" data-fill="operator">—</span></div>
-        <div class="kv"><span class="kv__key">Total Load</span><span class="kv__val" data-fill="total">—</span></div>
-        <div class="kv"><span class="kv__key">Date</span><span class="kv__val" data-fill="date">—</span></div>
-        <div class="kv"><span class="kv__key">Time</span><span class="kv__val" data-fill="time">—</span></div>
-      </div>
-      <div class="kv" style="margin-top:var(--sp-3)">
-        <span class="kv__key">MRFs Included</span>
-        <span class="kv__val text-sm" data-fill="mrfs">—</span>
-      </div>
-    </div>
-    <div class="modal__foot">
-      <button type="button" class="btn btn--secondary" data-modal-close>Close</button>
-    </div>
-  </div>
-</div>
+{{ delivery_modal() }}
 
 {% endblock %}

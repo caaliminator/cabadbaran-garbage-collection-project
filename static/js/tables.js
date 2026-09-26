@@ -24,6 +24,13 @@
      An empty value means "no filter".
    - Sorting uses data-<key> when present, otherwise the cell's text, and
      compares numerically when both values parse as numbers.
+   - Paging: every table shows 10 rows a page by default, with a Show 5 / 10 /
+     15 picker and Previous / Next. Paging runs over the rows the search and
+     filters leave, so page 2 is page 2 of the matches, and any change to the
+     search, a filter or the sort goes back to page 1. A table of 5 rows or
+     fewer has nothing to page and shows no pager. The pager goes in the
+     card's footer beside the row count, or in a footer made for it.
+     Opt out with data-table-paged="false" on the controller.
    ========================================================================== */
 
 (function () {
@@ -31,6 +38,9 @@
 
   const $  = (sel, ctx = document) => ctx.querySelector(sel);
   const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+
+  const PAGE_SIZES = [5, 10, 15];
+  const DEFAULT_PAGE_SIZE = 10;
 
   class DataTable {
     constructor(scope) {
@@ -49,8 +59,67 @@
       this.empty   = $('[data-table-empty]', scope);
       this.headers = $$('th[data-sort-key]', this.table);
 
+      this.paged    = scope.dataset.tablePaged !== 'false';
+      this.pageSize = DEFAULT_PAGE_SIZE;
+      this.page     = 1;
+      if (this.paged) this.buildPager();
+
       this.bind();
       this.apply();
+    }
+
+    /* ---- Paging ---- */
+
+    buildPager() {
+      const pager = document.createElement('div');
+      pager.className = 'table-pager';
+      pager.hidden = true;
+      pager.innerHTML =
+        '<label class="table-pager__size">Show '
+        + '<select class="field__select field__select--sm" data-pager-size>'
+        + PAGE_SIZES.map((n) => `<option value="${n}"${n === DEFAULT_PAGE_SIZE ? ' selected' : ''}>${n}</option>`).join('')
+        + '</select> per page</label>'
+        + '<nav class="pager" aria-label="Table pages">'
+        + '<button type="button" class="btn btn--secondary btn--sm" data-pager-prev>'
+        + '<span aria-hidden="true">&lsaquo;</span> Previous</button>'
+        + '<span class="table-pager__page" data-pager-page aria-live="polite"></span>'
+        + '<button type="button" class="btn btn--secondary btn--sm" data-pager-next>'
+        + 'Next <span aria-hidden="true">&rsaquo;</span></button>'
+        + '</nav>';
+
+      // Beside the row count when the card has a footer for it; otherwise in
+      // a footer of its own, after everything else in the card.
+      let foot = this.count ? this.count.closest('.card__foot') : null;
+      if (!foot || !this.scope.contains(foot)) {
+        foot = document.createElement('div');
+        foot.className = 'card__foot';
+        this.scope.appendChild(foot);
+        this.madeFoot = foot;
+      }
+      foot.appendChild(pager);
+
+      this.pager = pager;
+      this.sizeSelect = $('[data-pager-size]', pager);
+      this.prevBtn = $('[data-pager-prev]', pager);
+      this.nextBtn = $('[data-pager-next]', pager);
+      this.pageLabel = $('[data-pager-page]', pager);
+
+      this.sizeSelect.addEventListener('change', () => {
+        this.pageSize = Number(this.sizeSelect.value) || DEFAULT_PAGE_SIZE;
+        this.page = 1;
+        this.apply({ keepPage: true });
+      });
+      this.prevBtn.addEventListener('click', () => this.turn(-1));
+      this.nextBtn.addEventListener('click', () => this.turn(1));
+    }
+
+    turn(step) {
+      this.page += step;
+      this.apply({ keepPage: true });
+      // Keep the top of the table in view when the new page is shorter than
+      // the one it replaced and the page would otherwise jump.
+      const top = this.scope.getBoundingClientRect().top;
+      if (top < 0) this.scope.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
 
     bind() {
@@ -67,6 +136,34 @@
 
       this.filters.forEach((sel) =>
         sel.addEventListener('change', () => this.apply()));
+
+      // A filter inside the table's own scope that another script changes
+      // says so with this event.
+      this.scope.addEventListener('table:refresh', () => this.apply());
+
+      // Tabs: <div data-table-tabs="group"> holding buttons with
+      // data-table-tab="pending" / "collected" / ... / "all". A tab sets the hidden
+      // <input data-table-filter="group">, "all" clears it. The chosen tab is
+      // written to ?tab= so a refresh, or a link, opens on the same one.
+      const tabs = $('[data-table-tabs]', this.scope);
+      if (tabs) {
+        const key = tabs.dataset.tableTabs;
+        const input = this.filters.find((f) => f.dataset.tableFilter === key);
+        $$('[data-table-tab]', tabs).forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const tab = btn.dataset.tableTab;
+            if (input) input.value = tab === 'all' ? '' : tab;
+            $$('[data-table-tab]', tabs).forEach((b) =>
+              b.setAttribute('aria-selected', b === btn ? 'true' : 'false'));
+            this.apply();
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.set('tab', tab);
+              window.history.replaceState(null, '', url);
+            } catch (err) { /* an old browser keeps working, just unbookmarked */ }
+          });
+        });
+      }
 
       this.headers.forEach((th) => {
         th.setAttribute('tabindex', '0');
@@ -92,31 +189,52 @@
 
     /* ---- Filtering ---- */
 
-    apply() {
+    apply({ keepPage = false } = {}) {
+      // A new search, filter or sort starts again from the first page: page 3
+      // of the old matches means nothing once the matches have changed.
+      if (!keepPage) this.page = 1;
+
       const query = (this.search?.value || '').trim().toLowerCase();
       const active = this.filters
         .map((sel) => ({ key: sel.dataset.tableFilter, value: sel.value }))
         .filter((f) => f.value);
 
-      let visible = 0;
-
-      this.rows.forEach((row) => {
+      const matching = this.rows.filter((row) => {
         const matchesQuery = !query ||
           (row.textContent || '').toLowerCase().includes(query);
-
         const matchesFilters = active.every(
           (f) => (row.dataset[f.key] || '') === f.value);
-
-        const show = matchesQuery && matchesFilters;
-        row.hidden = !show;
-        if (show) visible++;
+        return matchesQuery && matchesFilters;
       });
+      const visible = matching.length;
+
+      // Which slice of the matches this page shows.
+      const size = this.paged ? this.pageSize : Math.max(visible, 1);
+      const pages = Math.max(1, Math.ceil(visible / size));
+      this.page = Math.min(Math.max(1, this.page), pages);
+      const first = (this.page - 1) * size;
+      const onPage = new Set(matching.slice(first, first + size));
+
+      this.rows.forEach((row) => { row.hidden = !onPage.has(row); });
 
       if (this.count) {
         const total = this.rows.length;
-        this.count.textContent = visible === total
+        const of = visible === total
           ? `${total} ${total === 1 ? 'record' : 'records'}`
           : `${visible} of ${total} records`;
+        this.count.textContent = pages > 1
+          ? `Showing ${first + 1}–${Math.min(first + size, visible)} of ${of}`
+          : of;
+      }
+
+      if (this.pager) {
+        // Nothing to page through: a pager would only be clutter.
+        const needed = visible > PAGE_SIZES[0];
+        this.pager.hidden = !needed;
+        if (this.madeFoot) this.madeFoot.hidden = !needed;
+        this.pageLabel.textContent = `Page ${this.page} of ${pages}`;
+        this.prevBtn.disabled = this.page <= 1;
+        this.nextBtn.disabled = this.page >= pages;
       }
 
       if (this.empty) this.empty.hidden = visible !== 0;
@@ -156,6 +274,8 @@
       sorted.forEach((row) => frag.appendChild(row));
       this.tbody.appendChild(frag);
       this.rows = sorted;
+      // The order changed, so the page has to be cut again from the top.
+      this.apply();
     }
   }
 

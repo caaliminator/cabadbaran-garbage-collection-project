@@ -1,7 +1,8 @@
 {% extends 'shell.html' %}
 {% from 'partials/icons.html' import icon %}
-{% from 'partials/macros.html' import progress_stat, stat, status,
-                                      search_input, filter_select, th, empty %}
+{% from 'partials/macros.html' import progress_stat, stat, status, status_code,
+                                      status_legend, search_input, filter_select,
+                                      th, empty %}
 
 {% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
 
@@ -73,77 +74,6 @@
             map_size = 'default' %}
       {% include 'partials/live_map.html' %}
     {% endwith %}
-
-    {# ---- Recent activity --------------------------------------------- #}
-    <section class="card" data-table-controller="actTable">
-      <div class="toolbar">
-        <h2 class="toolbar__title">Recent Collection Activities</h2>
-        {{ search_input('Search barangay or collector', 'act-search') }}
-        {{ filter_select('status', 'All Status', statuses) }}
-        {{ filter_select('type', 'All Types', activity_types) }}
-      </div>
-
-      <div class="table-wrap">
-        <table class="table" id="actTable">
-          <caption class="sr-only">Today's collection activity across the city</caption>
-          <thead>
-            <tr>
-              {{ th('Time', w='11%') }}
-              {{ th('Barangay', 'barangay', w='16%') }}
-              {{ th('Collector', 'collector', w='19%') }}
-              {{ th('Type', 'type', w='12%') }}
-              {{ th('Status', 'status', w='14%') }}
-              {{ th('Reason', w='21%') }}
-              <th scope="col" style="width:80px" class="table__actions"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in activity %}
-              <tr data-barangay="{{ a.barangay }}" data-collector="{{ a.collector }}"
-                  data-status="{{ a.status }}" data-type="{{ a.type }}">
-                <td data-label="Time">{{ a.time }}</td>
-                <td data-label="Barangay">{{ a.barangay }}</td>
-                <td data-label="Collector">
-                  <span class="strong">{{ a.collector }}</span>
-                  <span class="sub mono">{{ a.vehicle }}</span>
-                </td>
-                <td data-label="Type">{{ a.type }}</td>
-                <td data-label="Status">{{ status(a.status) }}</td>
-                <td data-label="Reason" class="text-sm muted">{{ a.reason }}</td>
-                <td class="table__actions">
-                  <button type="button" class="btn btn--icon"
-                          data-modal-open="entry-detail"
-                          data-set-name="{{ a.owner_name }}"
-                          data-set-property="{{ a.type }} · {{ a.barangay }}"
-                          data-set-purok="{{ a.purok }}"
-                          data-set-status="{{ a.status }}"
-                          data-set-collector="{{ a.collector }}"
-                          data-set-vehicle="{{ a.vehicle }}"
-                          data-set-date="{{ a.date }}"
-                          data-set-time="{{ a.time }}"
-                          data-set-reason="{{ a.reason }}"
-                          data-set-note="{{ a.note or 'No note recorded.' }}"
-                          data-set-load="{% for l in a.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
-                          data-set-coords="{% if a.gps %}{{ a.gps.lat }}, {{ a.gps.lng }}{% else %}Not captured{% endif %}"
-                          data-set-proof="{{ url_for('collector.proof', relative=a.proof) if a.proof else '' }}"
-                          aria-label="View activity for {{ a.owner_name }}">
-                    {{ icon('eye', 'icon--sm') }}
-                  </button>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div data-table-empty {% if activity %}hidden{% endif %}>
-        {{ empty('Nothing recorded yet today',
-                 'Activity appears here as collectors work through their routes.',
-                 'file') }}
-      </div>
-
-      <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
-    </section>
   </div>
 
   <div class="stack">
@@ -212,6 +142,82 @@
       </div>
     </section>
   </div>
+</section>
+
+{# ---- Recent activity ------------------------------------------------
+   Full width, below the map and chart: seven columns of names, codes and
+   reasons need the room, and squeezed into the map's column the Reason
+   text wrapped to several lines a row.                                  #}
+<section class="card" data-table-controller="actTable">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Recent Collection Activities</h2>
+    {{ search_input('Search barangay or collector', 'act-search') }}
+    {{ filter_select('status', 'All Status', statuses) }}
+    {{ filter_select('type', 'All Types', activity_types) }}
+  </div>
+
+  {{ status_legend(statuses) }}
+
+  <div class="table-wrap">
+    <table class="table" id="actTable">
+      <caption class="sr-only">Today's collection activity across the city</caption>
+      <thead>
+        <tr>
+          {{ th('Time', w='10%') }}
+          {{ th('Barangay', 'barangay', w='15%') }}
+          {{ th('Collector', 'collector', w='20%') }}
+          {{ th('Type', 'type', w='12%') }}
+          {{ th('Status', 'status', w='10%') }}
+          {{ th('Reason') }}
+          <th scope="col" style="width:72px" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in activity %}
+          <tr data-barangay="{{ a.barangay }}" data-collector="{{ a.collector }}"
+              data-status="{{ a.status }}" data-type="{{ a.type }}">
+            <td data-label="Time">{{ a.time }}</td>
+            <td data-label="Barangay">{{ a.barangay }}</td>
+            <td data-label="Collector">
+              <span class="strong">{{ a.collector }}</span>
+              <span class="sub mono">{{ a.vehicle }}</span>
+            </td>
+            <td data-label="Type">{{ a.type }}</td>
+            <td data-label="Status">{{ status_code(a.status) }}</td>
+            <td data-label="Reason" class="text-sm muted">{{ a.reason }}</td>
+            <td class="table__actions">
+              <button type="button" class="btn btn--icon"
+                      data-modal-open="entry-detail"
+                      data-set-name="{{ a.owner_name }}"
+                      data-set-property="{{ a.type }} · {{ a.barangay }}"
+                      data-set-purok="{{ a.purok }}"
+                      data-set-status="{{ a.status }}"
+                      data-set-collector="{{ a.collector }}"
+                      data-set-vehicle="{{ a.vehicle }}"
+                      data-set-date="{{ a.date }}"
+                      data-set-time="{{ a.time }}"
+                      data-set-reason="{{ a.reason }}"
+                      data-set-note="{{ a.note or 'No note recorded.' }}"
+                      data-set-load="{% for l in a.load %}{{ l.type }} — {{ l.qty }} {{ l.unit }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
+                      data-set-coords="{% if a.gps %}{{ a.gps.lat }}, {{ a.gps.lng }}{% else %}Not captured{% endif %}"
+                      data-set-proof="{{ url_for('collector.proof', relative=a.proof) if a.proof else '' }}"
+                      aria-label="View activity for {{ a.owner_name }}">
+                {{ icon('eye', 'icon--sm') }}
+              </button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div data-table-empty {% if activity %}hidden{% endif %}>
+    {{ empty('Nothing recorded yet today',
+             'Activity appears here as collectors work through their routes.',
+             'file') }}
+  </div>
+
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
 </section>
 
 {% include 'partials/entry_modal.html' %}

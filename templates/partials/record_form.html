@@ -59,6 +59,11 @@
       data-offline-label="{{ row.owner_name if kind == 'tricycle' else row.barangay }}"
       {% if not editable %}inert{% endif %}>
   {{ csrf_field() }}
+  {# The day this form was opened for. A record belongs to the day, and its
+     waste categories are that day's -- so one sent after midnight, or
+     replayed from the offline queue next morning, is refused rather than
+     filed under the wrong day with the wrong categories. #}
+  <input type="hidden" name="form_date" value="{{ form_date }}">
 
   <div class="split">
 
@@ -188,6 +193,11 @@
                     <button type="button" class="stepper__btn" data-step="-1"
                             aria-label="Decrease {{ wt }} quantity">&minus;</button>
                     <label class="sr-only" for="qty_{{ loop.index0 }}">Quantity of {{ wt }}</label>
+                    {# Which category this quantity is for, by name. Fields
+                       are numbered, so without the name a schedule change
+                       while the form is open would move every quantity onto
+                       the wrong category. #}
+                    <input type="hidden" name="type_{{ loop.index0 }}" value="{{ wt }}">
                     <input class="stepper__input" type="number" id="qty_{{ loop.index0 }}"
                            name="qty_{{ loop.index0 }}"
                            value="{{ existing.qty if existing else 0 }}" min="0" max="999"

@@ -122,17 +122,26 @@
         try {
           const res = await fetch(row.url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            // Tells the server this is a replay, so a refusal comes back as a
+            // 4xx with its reason rather than as a redirect to the form --
+            // which fetch follows to a 200 and would count as saved.
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                       'X-Offline-Replay': '1' },
             body,
             redirect: 'follow',
           });
           // A 4xx means the server rejected it on its merits (a stale entry,
-          // a locked day). Retrying forever would never fix that, so it is
-          // dropped and reported rather than left to loop.
+          // a day that has closed). Retrying forever would never fix that, so
+          // it is dropped and reported rather than left to loop -- with the
+          // server's own reason when it gave one.
           if (!res.ok && res.status >= 500) remaining.push(row);
           else if (!res.ok) {
-            this.tell(`"${row.label}" could not be saved and has been discarded. `
-                      + 'Please record it again.', 'danger');
+            let reason = 'Please record it again.';
+            try {
+              const detail = await res.json();
+              if (detail && detail.message) reason = detail.message;
+            } catch (err) { /* not JSON: keep the generic reason */ }
+            this.tell(`"${row.label}" could not be saved. ${reason}`, 'danger');
           }
         } catch (err) {
           remaining.push(row);               // still offline

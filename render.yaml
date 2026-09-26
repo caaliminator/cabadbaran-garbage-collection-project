@@ -33,10 +33,16 @@ services:
     # make_demo_geo.py every map boots blank; and without
     # make_demo_day.py every counter boots at 0. Both are idempotent,
     # and both are replaced the moment real data arrives.
+    #
+    # make_demo_day.py builds three weeks of history up to today by default
+    # -- accounts and households created on real past dates, every
+    # collection day worked and frozen into History, today in progress --
+    # so the system is presented mid-life. Every date is counted back from
+    # the day it runs, so each boot gives the same picture ending today.
     startCommand: >
       python seed.py --demo &&
       python tools/make_demo_geo.py &&
-      python tools/make_demo_day.py --days 5 &&
+      python tools/make_demo_day.py &&
       gunicorn app:app
       --worker-class gthread
       --workers 1

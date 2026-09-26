@@ -37,8 +37,13 @@ def compute(date, barangay_id: str | None = None) -> dict:
         pickups = storage.find("mrf_pickups", date=day)
         deliveries = storage.find("deliveries", date=day)
 
-    collected_mrfs = [p for p in pickups if p.get("status") == mrf_service.COLLECTED]
-    missed_mrfs = [p for p in pickups if p.get("status") == mrf_service.NOT_COLLECTED]
+    # The day's own stops only. A carry-over stop is an earlier day's batch,
+    # counted separately so one barangay cannot read "collected" twice.
+    regular = [p for p in pickups if mrf_service.is_regular(p)]
+    collected_mrfs = [p for p in regular if p.get("status") == mrf_service.COLLECTED]
+    missed_mrfs = [p for p in regular if p.get("status") == mrf_service.NOT_COLLECTED]
+    carried = [p for p in pickups if not mrf_service.is_regular(p)
+               and p.get("status") == mrf_service.COLLECTED]
 
     return {
         "date": day,
@@ -57,6 +62,7 @@ def compute(date, barangay_id: str | None = None) -> dict:
         "mrf": {
             "collected": len(collected_mrfs),
             "missed": len(missed_mrfs),
+            "carry_overs_collected": len(carried),
             "total": 1 if barangay_id else storage.count("barangays"),
         },
         "deliveries": {
@@ -112,13 +118,16 @@ def freeze(date, actor: str = "system") -> list[dict]:
     if _nothing_happened(compute(day, None)):
         return []
 
-    written = []
-    scopes = [None] + [b["id"] for b in storage.read("barangays")]
-    for barangay_id in scopes:
-        if frozen(day, barangay_id):
-            continue
-        written.append(storage.insert("history", compute(day, barangay_id), actor))
-    return written
+    # Every scope's summary is worked out first and written together: one
+    # rewrite of history.json for the day rather than 32, which on a store of
+    # weeks is the difference between a moment and most of a minute.
+    # The summaries only read, so each file is parsed once for all of them.
+    with storage.read_cache():
+        already = {row.get("barangay_id") for row in storage.find("history", date=day)}
+        scopes = [None] + [b["id"] for b in storage.read("barangays")]
+        rows = [compute(day, barangay_id) for barangay_id in scopes
+                if barangay_id not in already]
+    return storage.insert_many("history", rows, actor)
 
 
 def _nothing_happened(summary: dict) -> bool:
@@ -161,23 +170,46 @@ def ensure_frozen(actor: str = "system", look_back_days: int = 14) -> list[dict]
     return written
 
 
-def feed(barangay_id: str | None = None, limit: int = 14) -> list[dict]:
+def days_on_record(cap: int = 1096) -> int:
     """
-    Recent days, newest first, for the History pages. Today is included and
-    marked, so the page is not empty on a fresh install.
+    How many days the History pages can page back through: from the first
+    dated record the system holds to today, inclusive. At least 1, so a fresh
+    install still shows today; capped, so one stray ancient date cannot turn
+    the pager into thousands of empty pages.
+    """
+    earliest = None
+    for collection in ("collections", "mrf_pickups", "deliveries", "history"):
+        for row in storage.read(collection):
+            day = row.get("date")
+            if day and (earliest is None or day < earliest):
+                earliest = day
+    first = timeutil.to_date(earliest) if earliest else None
+    if not first:
+        return 1
+    return max(1, min(cap, (timeutil.today() - first).days + 1))
+
+
+def feed(barangay_id: str | None = None, limit: int = 14,
+         offset: int = 0) -> list[dict]:
+    """
+    Days newest first, for the History pages: `limit` of them, starting
+    `offset` days back from today. Today is included and marked, so the page
+    is not empty on a fresh install. Each day is computed or read only when
+    it is on the page being shown, so paging far back costs no more than the
+    first page.
     """
     from datetime import timedelta
 
     today = timeutil.today()
     rows = []
-    for offset in range(limit):
-        day = today - timedelta(days=offset)
+    for back in range(offset, offset + limit):
+        day = today - timedelta(days=back)
         summary = summary_for(day, barangay_id)
         rows.append({
             **summary,
-            "is_today": offset == 0,
-            "label": ("Today" if offset == 0
-                      else "Yesterday" if offset == 1
+            "is_today": back == 0,
+            "label": ("Today" if back == 0
+                      else "Yesterday" if back == 1
                       else timeutil.weekday_name(day)),
             "date_display": timeutil.display_day(day),
             "had_activity": bool(summary["entries"] or summary["mrf"]["collected"]

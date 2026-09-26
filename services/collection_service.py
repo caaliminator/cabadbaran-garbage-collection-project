@@ -248,6 +248,9 @@ def save_entry(form, files, property_record: dict, collector: dict,
     vehicle are taken from it and the property, never from the form.
     """
     day = timeutil.date_str(date or timeutil.today())
+    stale = stale_form_message(form, day)
+    if stale:
+        raise ValidationError({"form": stale})
     v = Validator(form)
 
     status = v.choice("status", "Collection result", STATUSES)
@@ -328,15 +331,46 @@ def save_entry(form, files, property_record: dict, collector: dict,
     return saved
 
 
+def stale_form_message(form, day: str) -> str:
+    """
+    Why a submitted record form no longer belongs to `day`, or "" if it does.
+
+    Every record is one day's, under that day's waste categories. A form
+    carries the date it was opened for, and one arriving on a later day --
+    left open past midnight, or replayed from the offline queue the next
+    morning -- is refused. Filing it under the new day would put Monday's
+    Kitchen Waste on Tuesday's list as Paper / Cardboard, and yesterday is
+    already closed and frozen in History, so it cannot go there either.
+
+    A form without the field (an older page still open in a browser) is
+    judged on the category names it carries instead; see _read_waste_lines.
+    """
+    opened = str(form.get("form_date") or "").strip()
+    if not opened or opened == day:
+        return ""
+    return (f"This record was opened for {timeutil.display_date(opened)}, and "
+            f"that day's collection has closed. It was not saved — please tell "
+            f"your Barangay Admin, and record today's stops from today's list.")
+
+
 def _read_waste_lines(form, day, v: Validator) -> list[dict]:
     """
     Waste quantities, keyed by index so a type containing a slash or a space
     cannot collide with another field name.
 
     The offered types come from that day's schedule row, so a Tuesday entry
-    offers recyclable categories rather than Kitchen Waste.
+    offers recyclable categories rather than Kitchen Waste. Each field also
+    names its category, and a name that no longer matches the day's list --
+    the schedule was changed while the form was open -- refuses the whole
+    record rather than moving a quantity onto a different category.
     """
     allowed = schedule_service.waste_types_for(day)
+    for index, waste_type in enumerate(allowed):
+        sent = str(form.get(f"type_{index}") or "").strip()
+        if sent and sent != waste_type:
+            v.fail("waste", "Today's waste categories changed while this form "
+                            "was open. Reopen it and record the stop again.")
+            return []
     lines = []
 
     for index, waste_type in enumerate(allowed):
@@ -495,15 +529,26 @@ def may_view_proof(entry: dict, user: dict) -> bool:
 # History
 # ---------------------------------------------------------------------------
 
-def history_for_collector(collector_id: str, date=None,
-                          search: str = "") -> list[dict]:
-    """A collector's own past entries as cards, newest first."""
+def history_for_collector(collector_id: str, date=None, search: str = "",
+                          barangay_id: str | None = None) -> list[dict]:
+    """
+    A collector's own past entries as cards, newest first -- within their
+    assigned barangay only.
+
+    Scoped to the barangay as well as the collector, because a collector who
+    has been moved to another barangay is working that barangay now: their
+    history page is the record of *this* route, not a mix of every route they
+    have ever driven. With no assignment there is no route, so nothing shows.
+    """
+    if not barangay_id:
+        return []
     names = {p["id"]: p for p in storage.read("properties")}
     needle = (search or "").strip().lower()
     day = timeutil.date_str(date) if date else None
 
     rows = []
-    for entry in storage.find("collections", collector_id=collector_id):
+    for entry in storage.find("collections", collector_id=collector_id,
+                              barangay_id=barangay_id):
         if day and entry.get("date") != day:
             continue
         prop = names.get(entry.get("property_id")) or {}

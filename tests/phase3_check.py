@@ -313,18 +313,25 @@ ok("resolved requests stop counting",
    not assignment_service.is_unavailable(COL["id"], tomorrow))
 
 print("\n[10] history")
-h = collection_service.history_for_collector(COL["id"])
+h = collection_service.history_for_collector(COL["id"], barangay_id=B1)
 ok("history returns this collector's entries", len(h) == 2)
 ok("history resolves the owner name",
    any(r["owner_name"] == "Nica Abayon" for r in h))
 ok("history is newest first",
    h[0]["timestamp"] >= h[1]["timestamp"])
 ok("history filters by search",
-   len(collection_service.history_for_collector(COL["id"], search="Iliana")) == 1)
+   len(collection_service.history_for_collector(COL["id"], search="Iliana",
+                                                barangay_id=B1)) == 1)
 ok("history filters by date",
-   len(collection_service.history_for_collector(COL["id"], date="2020-01-01")) == 0)
+   len(collection_service.history_for_collector(COL["id"], date="2020-01-01",
+                                                barangay_id=B1)) == 0)
 ok("another collector's history is empty",
-   collection_service.history_for_collector(other["id"]) == [])
+   collection_service.history_for_collector(other["id"], barangay_id=B1) == [])
+# The client's rule: a collector's history is their own barangay's record.
+ok("history is scoped to the collector's barangay",
+   collection_service.history_for_collector(COL["id"], barangay_id="brgy-02") == [])
+ok("with no barangay assigned there is no history to show",
+   collection_service.history_for_collector(COL["id"]) == [])
 
 print("\n[11] deleting a property keeps its history")
 before = storage.count("collections")
@@ -333,7 +340,7 @@ ok("collection records survive the property being deleted",
    storage.count("collections") == before)
 ok("history still renders a deleted property",
    any(r["owner_name"] == "Deleted property"
-       for r in collection_service.history_for_collector(COL["id"])))
+       for r in collection_service.history_for_collector(COL["id"], barangay_id=B1)))
 
 print("\n[12] the midnight reset")
 from datetime import timedelta
@@ -484,6 +491,35 @@ rows = {r["owner_name"]: r for r in collection_service.route_with_status(trio)}
 ok("on a special waste day the exemption swaps over",
    rows["No Special House"]["exempt"] is True
    and rows["Composting House"]["exempt"] is False)
+
+print("\n[14] a record belongs to its own day and its own categories")
+# The client's rule: what a collector records is what that day allows, never
+# mixed. Categories are numbered fields, so without these checks a form left
+# open past midnight -- or replayed from the offline queue next morning --
+# would file Monday's Kitchen Waste as Tuesday's Paper / Cardboard.
+from datetime import timedelta as _td
+storage.write("collections", [])
+_types = schedule_service.waste_types_for()
+_today = timeutil.today_str()
+_yesterday = timeutil.date_str(timeutil.today() - _td(days=1))
+fails("a form opened for another day is refused",
+      lambda: collection_service.save_entry(
+          Form({"status": "Collected", "qty_0": "5", "unit_0": "Sack",
+                "type_0": _types[0], "form_date": _yesterday}),
+          None, in_route, COL), "form", "was opened for")
+ok("and nothing was saved", collection_service.entry_for(in_route["id"]) is None)
+fails("a quantity for a category today's schedule does not have is refused",
+      lambda: collection_service.save_entry(
+          Form({"status": "Collected", "qty_0": "5", "unit_0": "Sack",
+                "type_0": "Kitchen Waste", "form_date": _today}),
+          None, in_route, COL), "waste", "changed")
+ok("and nothing was saved either", collection_service.entry_for(in_route["id"]) is None)
+_saved = collection_service.save_entry(
+    Form({"status": "Collected", "qty_0": "5", "unit_0": "Sack",
+          "type_0": _types[0], "form_date": _today}), None, in_route, COL)
+ok("a form for today, with today's categories, saves under them",
+   [w["type"] for w in _saved["waste"]] == [_types[0]]
+   and _saved["schedule_day"] == timeutil.weekday_name(_today))
 
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{sum(results)}/{len(results)} checks passed")

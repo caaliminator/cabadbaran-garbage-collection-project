@@ -7,7 +7,7 @@ from what actually happened -- and the socket layer only tells the page to
 re-read, never what the number is.
 """
 
-from flask import (Blueprint, Response, flash, redirect, render_template,
+from flask import (Blueprint, Response, abort, flash, redirect, render_template,
                    request, url_for)
 
 from blueprints.auth import current_user, role_required
@@ -757,6 +757,10 @@ def resident_reports():
     )
 
 
+# Days per page on the History & Reports feed. The middle one is the default.
+HISTORY_PAGE_SIZES = (5, 10, 15)
+
+
 @city_bp.route("/reports", methods=["GET", "POST"])
 @role_required("city_admin")
 def reports():
@@ -781,16 +785,76 @@ def reports():
             for message in exc.errors.values():
                 flash(message, "danger")
 
+    # The history feed pages through every day on record, `per` days at a
+    # time. Read from args or form alike, so generating a report (a POST)
+    # keeps the history panel on the page the admin was reading.
+    per = request.values.get("per", type=int)
+    per = per if per in HISTORY_PAGE_SIZES else HISTORY_PAGE_SIZES[1]
+    total_days = history_service.days_on_record()
+    pages = max(1, -(-total_days // per))
+    page = min(max(1, request.values.get("page", 1, type=int) or 1), pages)
+    first = (page - 1) * per
+
     return render_template(
         "city-hall-admin/reports.html",
         page_title="History & Reports",
-        feed=history_service.feed(None, limit=14),
+        feed=history_service.feed(None, limit=min(per, total_days - first),
+                                  offset=first),
+        history_page={"page": page, "pages": pages, "per": per,
+                      "sizes": HISTORY_PAGE_SIZES, "total": total_days,
+                      "first": first + 1,
+                      "last": min(first + per, total_days)},
         report_types=report_service.TYPES,
         barangays=user_service.barangay_options(),
         generated=generated,
         errors=errors or {},
         today=timeutil.today_str(),
         form=request.form,
+    )
+
+
+@city_bp.route("/history/<day>")
+@role_required("city_admin")
+def history_day(day):
+    """
+    One day of History in full -- what the day's summary card is made of.
+
+    The figures up top are the day's own summary, frozen once the day closed,
+    so they match what was reported. Below them are the barangays that make
+    them up, each from its own frozen summary, then the MRF pickups and the
+    landfill deliveries themselves, each with the same View Details the MRF
+    page has.
+    """
+    parsed = timeutil.to_date(day)
+    if not parsed or timeutil.date_str(parsed) > timeutil.today_str():
+        abort(404)
+    date = timeutil.date_str(parsed)
+
+    summary = history_service.summary_for(date)
+    barangay_rows = []
+    for barangay in sorted(storage.read("barangays"), key=lambda b: b.get("number", 0)):
+        own = history_service.summary_for(date, barangay["id"])
+        mrf = own.get("mrf") or {}
+        barangay_rows.append({
+            "id": barangay["id"],
+            "name": barangay["name"],
+            **own["properties"],
+            "load": own["load"]["total"],
+            "entries": own["entries"],
+            "mrf": ("Collected" if mrf.get("collected")
+                    else "Missed" if mrf.get("missed") else "No pickup recorded"),
+        })
+
+    return render_template(
+        "city-hall-admin/history_day.html",
+        page_title="History",
+        day=summary,
+        date=date,
+        date_display=timeutil.display_day(date),
+        is_today=date == timeutil.today_str(),
+        barangay_rows=barangay_rows,
+        pickups=mrf_service.city_listing(date),
+        deliveries=mrf_service.deliveries_listing(date),
     )
 
 

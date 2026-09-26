@@ -1,6 +1,6 @@
 {% extends 'shell.html' %}
 {% from 'partials/icons.html' import icon %}
-{% from 'partials/macros.html' import status, empty %}
+{% from 'partials/macros.html' import status, empty, search_input, filter_select %}
 
 {% block head %}{% include 'partials/map_assets.html' %}{% endblock %}
 
@@ -60,6 +60,43 @@
       {% endif %}
     </div>
   </div>
+
+  {# ---- Your MRF today ----------------------------------------------------
+     Where every MRF alert lands. The collector fills this MRF all day, so
+     whether the truck has come for it -- and when a missed load will be
+     taken -- is the other half of their round.                           #}
+  {% if mrf %}
+    <div class="today-card">
+      <span class="today-card__icon" aria-hidden="true">{{ icon('recycle') }}</span>
+      <div style="min-width:0">
+        <p class="today-card__label">Your MRF Today</p>
+        <p class="today-card__value">
+          {% if mrf.status == 'Collected from MRF' %}Collected
+          {% elif mrf.status == 'Not Collected' %}Not collected
+          {% else %}Waiting for the truck{% endif %}
+        </p>
+        <p class="text-xs muted">
+          {% if mrf.status == 'Collected from MRF' %}
+            {{ mrf.truck }}{% if mrf.time_display %} at {{ mrf.time_display }}{% endif %} · {{ mrf.load.total }}
+          {% elif mrf.status == 'Not Collected' %}
+            {{ mrf.reason or 'Missed' }} · City Hall will reschedule it
+          {% else %}
+            {{ mrf.load.total if not mrf.load.empty else 'Nothing brought in yet' }} in {{ mrf.mrf_name }}
+          {% endif %}
+        </p>
+        {% for o in mrf.owed %}
+          <p class="text-xs" style="margin-top:var(--sp-1);display:flex;gap:var(--sp-1);align-items:flex-start">
+            {{ icon('repeat', 'icon--sm') }}
+            <span>
+              Missed load from {{ o.missed_display }}:
+              {% if o.arranged %}{{ o.truck }} on {{ o.date_display }}
+              {% else %}waiting for City Hall to arrange{% endif %}
+            </span>
+          </p>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
 </section>
 
 {% if not assignment %}
@@ -84,21 +121,47 @@
 
 <section class="split split--wide">
 
-  {# ---- Route list ----------------------------------------------------- #}
+  {# ---- Today's round ----------------------------------------------------
+     Four tabs over today's list only -- yesterday's is in History. Pending
+     is what is left to do, Not Collected and Collected are the day's
+     recorded stops newest first, All is every stop. The tabs, the purok
+     filter, the search and the paging are all tables.js, driven from the
+     markup below.                                                         #}
   <div class="stack">
-    <div class="row row--between">
-      <h2 class="card__title">
-        {% if assignment %}Brgy. {{ barangay }}{% else %}Your route{% endif %}
-      </h2>
-      <span class="text-sm muted">{{ counts.total }} assigned</span>
-    </div>
+    <section class="card" data-table-controller="triStops"
+             data-table-row-selector=".stop">
+      <div class="toolbar">
+        <h2 class="toolbar__title">
+          {% if assignment %}Brgy. {{ barangay }}{% else %}Your route{% endif %}
+          <span class="text-xs muted" style="font-weight:400">· {{ today_date }}</span>
+        </h2>
+        {% set tabs = [('pending', 'Pending'), ('not_collected', 'Not Collected'),
+                       ('collected', 'Collected'), ('all', 'All')] %}
+        <div class="segmented segmented--grid" role="tablist" aria-label="Which stops"
+             data-table-tabs="group">
+          {% for key, label in tabs %}
+            <button type="button" class="segmented__btn" role="tab"
+                    data-table-tab="{{ key }}"
+                    aria-selected="{{ 'true' if tab == key else 'false' }}">
+              {{ label }} <span class="sub">{{ tab_counts[key] }}</span>
+            </button>
+          {% endfor %}
+        </div>
+        <input type="hidden" data-table-filter="group"
+               value="{{ '' if tab == 'all' else tab }}">
+        {% if puroks|length > 1 %}
+          {{ filter_select('purok', 'All Puroks', puroks) }}
+        {% endif %}
+        {{ search_input('Search name', 'tri-stop-search') }}
+      </div>
 
-    <div class="stops">
+    <div class="stops card__body" id="triStops">
       {% for r in rows %}
         {% set tone = 'collected' if r.status == 'Collected'
                       else ('not-collected' if r.status == 'Not Collected'
                             else ('exempt' if r.exempt else 'pending')) %}
-        <a class="stop stop--{{ tone }}"
+        <a class="stop stop--{{ tone }}" data-group="{{ r.group }}"
+           data-purok="{{ r.purok }}"
            href="{{ url_for('collector.tricycle_record', property_id=r.id) }}">
           <span class="stop__icon" aria-hidden="true">
             {% if r.status == 'Collected' %}{{ icon('check') }}
@@ -109,7 +172,7 @@
           <span class="stop__main">
             <span class="stop__name">{{ r.owner_name }}</span>
             <span class="stop__meta">
-              <span>{{ r.type }}</span>
+              {% if r.type %}<span>{{ r.type }}</span>{% endif %}
               <span>{{ r.purok }}</span>
               {% if r.tag %}<span>{{ r.tag }}</span>{% endif %}
             </span>
@@ -141,14 +204,27 @@
             </span>
           {% endif %}
         </a>
+      {% endfor %}
+    </div>
+
+      {% if rows %}
+        <div data-table-empty hidden>
+          {{ empty('Nothing here right now',
+                   'No stop matches this tab, purok or search. Try the All tab.',
+                   'search') }}
+        </div>
       {% else %}
-        <div class="card"><div class="card__body">
+        <div class="card__body">
           {{ empty('No properties on your route',
                    'No households or establishments are registered in your purok coverage yet. The barangay admin adds them in their Property List.',
                    'home') }}
-        </div></div>
-      {% endfor %}
-    </div>
+        </div>
+      {% endif %}
+
+      <div class="card__foot">
+        <span class="text-xs muted" data-table-count></span>
+      </div>
+    </section>
   </div>
 
   {# ---- Progress + running load ---------------------------------------- #}

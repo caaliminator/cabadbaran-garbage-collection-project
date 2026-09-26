@@ -23,10 +23,12 @@ chased. Because the stage is derived from those two fields (see `stage_of`),
 it can never drift from them, and rows written before this split read
 correctly without a migration.
 
-The load itself never moves anywhere: it stays in the barangay MRF. A
-carry-over is the *record* that it is overdue, so it cannot be quietly
-forgotten. That is why closing one is driven by the next successful pickup of
-that barangay rather than by an admin ticking it off.
+A carry-over is one missed day's batch at one MRF, with that day's waste type
+and load. The trucks' lists are daily and never mix days, so an earlier day's
+load is not quietly swept into a later day's pickup: it waits here until the
+admin arranges it, then appears on that truck's page as its own carry-over
+stop on the arranged date. Closing one is driven by that stop's pickup rather
+than by an admin ticking it off.
 """
 
 from services import storage, timeutil
@@ -79,38 +81,60 @@ def missing_from(row: dict) -> str:
     return "Needs a collection date" if has_truck else "Needs a truck"
 
 
-def open_for(pickup: dict, actor: str | None = None) -> dict | None:
-    """
-    Open a carry-over for a missed pickup, unless one is already outstanding
-    for that barangay.
+# The same three answers, short enough to sit under a status badge in a table
+# column. Keyed by the long form so the two can never say different things.
+_MISSING_SHORT = {
+    "Needs a truck and a collection date": "Needs truck & date",
+    "Needs a collection date": "Needs date",
+    "Needs a truck": "Needs truck",
+}
 
-    One open carry-over per barangay is deliberate: three consecutive misses
-    are one overdue load that has grown, not three separate loads, and three
-    rows would make the admin chase the same waste three times.
+
+def missing_short(row: dict) -> str:
+    return _MISSING_SHORT.get(missing_from(row), "")
+
+
+def open_for(pickup: dict, load: dict | None = None,
+             actor: str | None = None) -> dict | None:
+    """
+    Open a carry-over for a regular pickup that was missed: one day's batch at
+    one MRF, holding that day's waste type and that day's load.
+
+    One carry-over per missed *day*, not per barangay. Each day's list stands
+    on its own, so a Thursday of residual waste and a Friday of biodegradable
+    waste are two loads with two waste types, and folding them into one row
+    would mix exactly what the daily list keeps apart.
+
+    Recording the same day's miss again -- an operator correcting their own
+    reason -- updates that day's row rather than opening a second one.
     """
     barangay_id = pickup.get("barangay_id")
-    existing = outstanding_for(barangay_id)
+    day = pickup.get("date")
+    existing = for_batch(barangay_id, day)
 
     if existing:
-        # A miss on the rescheduled day means the arrangement did not hold, so
-        # the row goes back to Missed Collection and needs a new date. The
-        # truck is kept -- it is still the one that knows this barangay -- but
-        # the spent date is cleared rather than left behind looking overdue.
-        return storage.update("carry_overs", existing["id"], {
-            "waste": pickup.get("load"),
-            "missed_count": (existing.get("missed_count") or 1) + 1,
-            "last_missed_date": pickup.get("date"),
+        changes = {
+            "waste": load or existing.get("waste"),
             "last_pickup_id": pickup.get("id"),
-            "misses": (existing.get("misses") or []) + [_miss(pickup)],
-            "reschedule_date": None,
-            "status": MISSED,
-        }, actor)
+            "reason": pickup.get("reason"),
+            "misses": [(_miss(pickup) if m.get("pickup_id") == pickup.get("id") else m)
+                       for m in (existing.get("misses") or [_miss(pickup)])],
+        }
+        if not is_open(existing):
+            # Collected, then corrected back to missed the same day: the
+            # batch is owed again, so the row reopens.
+            changes.update({"status": MISSED, "collected_date": None,
+                            "collected_by_pickup": None})
+        return storage.update("carry_overs", existing["id"], changes, actor)
 
     return storage.insert("carry_overs", {
         "barangay_id": barangay_id,
+        "batch_date": day,
         "source_schedule_day": pickup.get("source_schedule_day"),
         "waste_type": pickup.get("waste_type"),
-        "waste": pickup.get("load"),
+        # What was left in the MRF that day. The pickup itself carries no load
+        # -- a miss never reached the truck -- so this is the only record of it.
+        "waste": load or pickup.get("load"),
         "original_truck": pickup.get("truck_code"),
         "current_truck": None,
         "status": MISSED,
@@ -138,20 +162,58 @@ def _miss(pickup: dict) -> dict:
     }
 
 
-def close_for(barangay_id: str, pickup: dict, actor: str | None = None) -> dict | None:
-    """A successful pickup closes whatever was outstanding for that barangay."""
-    existing = outstanding_for(barangay_id)
-    if not existing:
-        return None
-    return storage.update("carry_overs", existing["id"], {
+def close(row: dict, pickup: dict, actor: str | None = None) -> dict:
+    """The carry-over's own stop was collected: the load is finally taken."""
+    return storage.update("carry_overs", row["id"], {
         "status": COLLECTED,
         "collected_date": pickup.get("date"),
         "collected_by_pickup": pickup.get("id"),
-        "current_truck": pickup.get("truck_code") or existing.get("current_truck"),
+        "current_truck": pickup.get("truck_code") or row.get("current_truck"),
     }, actor)
 
 
+def close_for(barangay_id: str, pickup: dict, actor: str | None = None) -> dict | None:
+    """
+    A regular pickup closes the carry-over for its *own* day's batch -- the
+    operator marked it missed, then came back and collected it after all.
+
+    It does not close an earlier day's carry-over. That load is a separate
+    stop, collected when the admin has arranged it, so it is never absorbed
+    into another day's list.
+    """
+    existing = for_batch(barangay_id, pickup.get("date"))
+    if not existing or not is_open(existing):
+        return None
+    return close(existing, pickup, actor)
+
+
+def missed_again(row: dict, pickup: dict, actor: str | None = None) -> dict:
+    """
+    A carry-over stop was missed on the day it was arranged for. The
+    arrangement did not hold, so the row goes back to Missed Collection and
+    needs a new date. The truck is kept -- it is still the one that knows this
+    barangay -- but the spent date is cleared rather than left looking overdue.
+    """
+    return storage.update("carry_overs", row["id"], {
+        "missed_count": (row.get("missed_count") or 1) + 1,
+        "last_missed_date": pickup.get("date"),
+        "last_pickup_id": pickup.get("id"),
+        "misses": (row.get("misses") or []) + [_miss(pickup)],
+        "reason": pickup.get("reason"),
+        "reschedule_date": None,
+        "status": MISSED,
+    }, actor)
+
+
+def for_batch(barangay_id: str, date) -> dict | None:
+    """The carry-over holding one day's batch at one MRF, if there is one."""
+    day = timeutil.date_str(date)
+    return next((r for r in storage.find("carry_overs", barangay_id=barangay_id)
+                 if (r.get("batch_date") or r.get("first_missed_date")) == day), None)
+
+
 def outstanding_for(barangay_id: str) -> dict | None:
+    """The oldest carry-over still owed at a barangay, if any."""
     rows = [r for r in storage.find("carry_overs", barangay_id=barangay_id)
             if is_open(r)]
     rows.sort(key=lambda r: r.get("created_at") or "")
@@ -160,27 +222,20 @@ def outstanding_for(barangay_id: str) -> dict | None:
 
 def pending_for_truck(truck_code: str, date=None) -> list[dict]:
     """
-    Carry-overs a given truck should see as an extra stop today: reassigned to
-    it, and either due today or already overdue.
+    Carry-overs a truck should see as a stop on a date: reassigned to it and
+    rescheduled for that date -- which is exactly what Pending means.
 
-    The stage is not part of the test. What puts the stop on a truck's list is
-    that the load is still owed and the truck's name is on it -- a row with no
-    date yet reads as "as soon as you can", which is what a missed load with an
-    assigned truck means.
+    Nothing else. A row with a truck but no date is still Missed Collection,
+    waiting on the admin, and has no day to sit on; one whose date has passed
+    was closed off at the end of that day (mrf_service.auto_mark_missed) and
+    is back with the admin too. Either way it is not part of today's list.
     """
     if not truck_code:
         return []
     day = timeutil.date_str(date or timeutil.today())
-
-    rows = []
-    for row in storage.read("carry_overs"):
-        if not is_open(row) or row.get("current_truck") != truck_code:
-            continue
-        due = row.get("reschedule_date")
-        if due and due > day:
-            continue        # scheduled for a later date
-        rows.append(row)
-    return rows
+    return [row for row in storage.read("carry_overs")
+            if is_open(row) and row.get("current_truck") == truck_code
+            and row.get("reschedule_date") == day]
 
 
 def listing(status: str = "", barangay_id: str = "") -> list[dict]:
@@ -222,6 +277,7 @@ def listing(status: str = "", barangay_id: str = "") -> list[dict]:
             "needs_truck": bool(stage == MISSED and not row.get("current_truck")),
             "needs_date": bool(stage == MISSED and not row.get("reschedule_date")),
             "missing": missing_from(row),
+            "missing_short": missing_short(row),
             "due_today": bool(due == today),
             "lines": (row.get("waste") or {}).get("lines") or [],
             "total": (row.get("waste") or {}).get("total") or "0",
@@ -332,13 +388,18 @@ def detail(row: dict) -> dict:
                                 else row.get("source_schedule_day") or "—"),
         "waste_type": (view.get("waste_type") if view.get("recorded")
                        else row.get("waste_type") or "—"),
+        # Still waiting: what that day left in the MRF, which the row keeps.
         "load": (view.get("load") if stage == COLLECTED
-                 else {"total": "0", "lines": [], "empty": True}),
+                 else row.get("waste") or {"total": "0", "lines": [], "empty": True}),
         "original_truck": with_operator(row.get("original_truck"), original_operator),
         "current_truck": with_operator(row.get("current_truck"), current_operator),
-        "assigned_truck": with_operator(
-            row.get("current_truck") or row.get("original_truck"),
-            current_operator or original_operator),
+        # The truck and the name must belong together. Falling back to the
+        # original operator when the new truck had nobody assigned printed
+        # "TRK-05 — Alfredo Marasigan" for a man who drives TRK-01.
+        "assigned_truck": (with_operator(row.get("current_truck"), current_operator)
+                           if row.get("current_truck")
+                           else with_operator(row.get("original_truck"),
+                                              original_operator)),
         "reschedule_display": (timeutil.display_date(row["reschedule_date"])
                                if row.get("reschedule_date") else "Not scheduled"),
         "collected_display": (timeutil.display_date(row["collected_date"])
@@ -414,6 +475,10 @@ def reassign(carry_over_id: str, truck_code: str, actor: str) -> dict:
 
     from services import triggers
     triggers.on_carry_over_reassigned(updated, truck_code)
+    # Truck and date together mean it is arranged -- and the barangay whose
+    # MRF it is hears when, whichever of the two was set last.
+    if stage_of(updated) == PENDING:
+        triggers.on_carry_over_scheduled(updated)
     return updated
 
 
@@ -439,6 +504,8 @@ def reschedule(carry_over_id: str, date, actor: str) -> dict:
     # was not, which is the half of the arrangement they act on.
     from services import triggers
     triggers.on_carry_over_rescheduled(updated)
+    if stage_of(updated) == PENDING:
+        triggers.on_carry_over_scheduled(updated)
     return updated
 
 

@@ -223,13 +223,97 @@ def on_carry_over_created(carry_over: dict, pickup: dict) -> None:
                     title="Carry-over created",
                     barangay_id=carry_over.get("barangay_id"),
                     carry_over_id=carry_over.get("id"))
+    # Named by date, not "today": an MRF nobody recorded is only marked missed
+    # when the day closes, so this is often read the next morning.
+    missed_on = pickup.get("date")
+    when = ("today" if missed_on == timeutil.today_str()
+            else f"on {timeutil.display_date(missed_on)}")
     realtime.notify(realtime.barangay_room(carry_over.get("barangay_id")),
                     N.CARRY_OVER_CREATED,
-                    f"Your MRF was not collected today. City Hall has been "
+                    f"Your MRF was not collected {when}. City Hall has been "
                     f"notified and will reschedule the pickup.",
                     title="MRF not collected",
-                    barangay_id=carry_over.get("barangay_id"))
+                    barangay_id=carry_over.get("barangay_id"),
+                    carry_over_id=carry_over.get("id"),
+                    pickup_id=pickup.get("id"))
     realtime.carry_over_created(carry_over)
+
+
+# ---------------------------------------------------------------------------
+# The barangay's own MRF -- what its tricycle collectors and admin hear
+#
+# Addressed to the barangay room, which is where a barangay's tricycle
+# collectors and its admin both listen. The tricycles fill this MRF all day;
+# whether the truck came for it, and when a missed load will be taken, is the
+# other half of their round.
+# ---------------------------------------------------------------------------
+
+def on_mrf_collected(pickup: dict, carry_over: dict | None = None) -> None:
+    """The truck took the load from the barangay's MRF."""
+    barangay_id = pickup.get("barangay_id")
+    key = f"mrf_collected:{pickup.get('id')}"
+    if not barangay_id or N.already_sent(key):
+        return      # re-saving the same pickup is not a second collection
+    truck = pickup.get("truck_code") or "The truck"
+    total = (pickup.get("load") or {}).get("total") or "0"
+
+    if carry_over:
+        missed_on = carry_over.get("batch_date") or carry_over.get("first_missed_date")
+        message = (f"{truck} collected the missed load from "
+                   f"{timeutil.display_date(missed_on)} at your MRF — {total}.")
+        title = "Carry-over collected"
+    else:
+        message = (f"{truck} collected today's "
+                   f"{pickup.get('waste_type') or 'load'} from your MRF — {total}.")
+        title = "MRF collected"
+
+    realtime.notify(realtime.barangay_room(barangay_id), N.MRF_COLLECTED,
+                    message, title=title, barangay_id=barangay_id,
+                    pickup_id=pickup.get("id"), dedupe_key=key)
+
+
+def on_carry_over_scheduled(carry_over: dict) -> None:
+    """A missed load now has a truck and a day -- it will be collected."""
+    barangay_id = carry_over.get("barangay_id")
+    truck, day = carry_over.get("current_truck"), carry_over.get("reschedule_date")
+    if not barangay_id or not truck or not day:
+        return      # not arranged yet: there is nothing to tell them
+    key = f"carry_over_scheduled:{carry_over.get('id')}:{truck}:{day}"
+    if N.already_sent(key):
+        return
+    missed_on = carry_over.get("batch_date") or carry_over.get("first_missed_date")
+    realtime.notify(
+        realtime.barangay_room(barangay_id), N.CARRY_OVER_SCHEDULED,
+        f"The missed load from {timeutil.display_date(missed_on)} at your MRF "
+        f"will be collected by {truck} on {timeutil.display_date(day)}.",
+        title="Missed load rescheduled", barangay_id=barangay_id,
+        carry_over_id=carry_over.get("id"), dedupe_key=key)
+
+
+def on_carry_over_missed_again(carry_over: dict, pickup: dict) -> None:
+    """
+    An arranged carry-over stop was not collected either. City Hall has to
+    arrange it again, and the barangay should not be left expecting a truck.
+    """
+    barangay = storage.find_one("barangays", id=carry_over.get("barangay_id")) or {}
+    name = barangay.get("name", "A barangay")
+    reason = f" ({pickup.get('reason')})" if pickup.get("reason") else ""
+    missed_on = carry_over.get("batch_date") or carry_over.get("first_missed_date")
+
+    realtime.notify(realtime.CITY, N.CARRY_OVER_CREATED,
+                    f"The carry-over at {name} MRF was not collected on its "
+                    f"rescheduled date{reason}. It is back in Missed Collection.",
+                    title="Carry-over missed again",
+                    barangay_id=carry_over.get("barangay_id"),
+                    carry_over_id=carry_over.get("id"))
+    realtime.notify(realtime.barangay_room(carry_over.get("barangay_id")),
+                    N.CARRY_OVER_CREATED,
+                    f"The missed load from {timeutil.display_date(missed_on)} at "
+                    f"your MRF was not collected as rescheduled. City Hall will "
+                    f"arrange it again.",
+                    title="Rescheduled pickup missed",
+                    barangay_id=carry_over.get("barangay_id"),
+                    carry_over_id=carry_over.get("id"))
 
 
 def on_carry_over_reassigned(carry_over: dict, truck_code: str) -> None:

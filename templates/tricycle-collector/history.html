@@ -7,7 +7,13 @@
 <div class="page__head">
   <div>
     <h1 class="page__title">History</h1>
-    <p class="page__sub">Everything you have recorded on your route.</p>
+    <p class="page__sub">
+      {% if barangay %}
+        Everything you have recorded in Brgy. {{ barangay }}.
+      {% else %}
+        No barangay assigned yet — your history appears here once you have a route.
+      {% endif %}
+    </p>
   </div>
 </div>
 
@@ -73,6 +79,27 @@
           <span>{{ r.date_display }}</span>
           <span>{{ r.time_display }}</span>
           <span class="mono">{{ r.tricycle_code or '—' }}</span>
+          {# The full record, in the same dialog the admins open for it:
+             the GPS at the stop and the photo are the parts the card leaves
+             out. #}
+          <button type="button" class="btn btn--icon"
+                  data-modal-open="entry-detail"
+                  data-set-name="{{ r.owner_name }}"
+                  data-set-property="{{ (r.property_type ~ ' · ') if r.property_type and r.property_type != '—' else '' }}Brgy. {{ barangay }}"
+                  data-set-purok="{{ r.purok }}"
+                  data-set-status="{{ r.status }}{{ ' · Disputed by the resident' if r.disputed else '' }}"
+                  data-set-collector="{{ user.name }}"
+                  data-set-vehicle="{{ r.tricycle_code or '—' }}"
+                  data-set-date="{{ r.date_display }}"
+                  data-set-time="{{ r.time_display }}"
+                  data-set-reason="{{ r.reason or '—' }}"
+                  data-set-note="{{ r.note or 'No note recorded.' }}"
+                  data-set-load="{% for l in r.waste %}{{ l.type }} — {{ l.qty }} {{ l.unit|unit(l.qty) }}{% if not loop.last %}, {% endif %}{% else %}No load recorded{% endfor %}"
+                  data-set-coords="{% if r.gps %}{{ r.gps.lat }}, {{ r.gps.lng }}{% else %}Not captured{% endif %}"
+                  data-set-proof="{{ url_for('collector.proof', relative=r.image_proof_path) if r.image_proof_path else '' }}"
+                  aria-label="View the full record for {{ r.owner_name }}">
+            {{ icon('eye', 'icon--sm') }}
+          </button>
         </div>
       </article>
     {% endfor %}
@@ -88,5 +115,7 @@
 
   <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
 </section>
+
+{% include 'partials/entry_modal.html' %}
 
 {% endblock %}

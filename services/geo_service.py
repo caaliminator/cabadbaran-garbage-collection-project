@@ -40,7 +40,7 @@ ZONES_FILE = "barangay_zones.geojson"
 MRFS_FILE = "mrf_locations.json"
 HOTSPOTS_FILE = "hotspots.geojson"
 
-_cache: dict[str, tuple[float, object]] = {}
+_cache: dict[str, tuple[tuple[int, int], object]] = {}
 _cache_guard = threading.Lock()
 
 
@@ -62,7 +62,11 @@ def _load(filename: str):
     """
     file = geo_path(filename)
     try:
-        mtime = file.stat().st_mtime
+        # Nanoseconds and size together, not the float mtime alone: two writes
+        # inside one timestamp tick otherwise look like no change at all, and
+        # the older copy keeps being served.
+        stat = file.stat()
+        mtime = (stat.st_mtime_ns, stat.st_size)
     except OSError:
         return None, "missing"
 
@@ -256,6 +260,12 @@ def _write_survey(rows: list) -> None:
         "surveyed": sorted(rows, key=lambda r: r.get("barangay_id") or ""),
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # This process just changed the file, so it knows the cache is stale --
+    # no need to trust the file clock to notice. Without this, an admin who
+    # saved and then cleared a location in quick succession could be shown
+    # the location they had just cleared.
+    with _cache_guard:
+        _cache.pop(SURVEY_FILE, None)
 
 
 def set_mrf_location(barangay_id: str, lat, lng, actor: str | None = None,

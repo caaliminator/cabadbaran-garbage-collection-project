@@ -204,6 +204,10 @@ def _replace_with_retry(tmp: str, file: Path,
 
 def _write_raw(name: str, rows: list[dict]) -> None:
     """Atomically replace the collection. Callers must already hold the lock."""
+    # A read_cache copy of this collection is now out of date.
+    memo = getattr(_memo, "rows", None)
+    if memo is not None:
+        memo.pop(name, None)
     file = path_for(name)
     file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -212,8 +216,15 @@ def _write_raw(name: str, rows: list[dict]) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(file.parent), prefix=f".{name}-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(rows, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
+            # One record per line. json.dump(indent=2) cannot use the C
+            # encoder -- indenting forces the pure-Python one -- and since
+            # every save rewrites the whole file, a collector saving one stop
+            # paid for re-encoding thousands of records slowly. Each line here
+            # is encoded in C, the file is still valid JSON, and a record is
+            # still easy to find: it is one line instead of twenty.
+            handle.write("[\n")
+            handle.write(",\n".join(json.dumps(row, ensure_ascii=False) for row in rows))
+            handle.write("\n]\n")
             handle.flush()
             os.fsync(handle.fileno())
         _replace_with_retry(tmp, file)
@@ -242,10 +253,50 @@ def bootstrap() -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+_memo = threading.local()
+
+
+@contextmanager
+def read_cache():
+    """
+    Parse each collection once for the length of a read-only job.
+
+    Freezing a day works out 32 summaries -- the city and each barangay --
+    and each one reads the same handful of files, so without this one day
+    cost some 190 parses of files that did not change. Inside the block a
+    collection is parsed on first read and shared after that, and a write to
+    it drops its copy, so a read never sees stale data.
+
+    The contract: rows read inside the block are shared, so they must not be
+    mutated there. Use it only around code that only reads.
+    """
+    if getattr(_memo, "rows", None) is not None:
+        yield           # already inside one: share it
+        return
+    _memo.rows = {}
+    try:
+        yield
+    finally:
+        _memo.rows = None
+
+
 def read(name: str) -> list[dict]:
-    """Every record in a collection, as a deep copy safe to mutate freely."""
+    """
+    Every record in a collection, safe to mutate freely (outside read_cache).
+
+    Safe without a copy: _read_raw parses the file afresh on every call, so
+    the list it returns is new and held by nobody else. Deep-copying it again
+    was the most expensive part of a read -- twice the cost of the parse --
+    for no protection at all, and every page does several reads.
+    """
+    memo = getattr(_memo, "rows", None)
+    if memo is not None and name in memo:
+        return memo[name]
     with _guard(name):
-        return copy.deepcopy(_read_raw(name))
+        rows = _read_raw(name)
+    if memo is not None:
+        memo[name] = rows
+    return rows
 
 
 def write(name: str, rows: list[dict]) -> None:
@@ -296,6 +347,40 @@ def insert(name: str, record: dict, actor: str | None = None) -> dict:
         stored.setdefault("updated_by", None)
         rows.append(stored)
         return copy.deepcopy(stored)
+
+
+def insert_many(name: str, records: list[dict], actor: str | None = None) -> list[dict]:
+    """
+    Add several records in one read and one write, stamped exactly as insert
+    stamps one. Returns the stored copies.
+
+    Every write rewrites the whole collection file, so adding N records one
+    at a time costs N full rewrites of a file that grows as it goes. Where
+    many records are written together -- a day's frozen summaries, a batch of
+    demo activity -- this is the same result for one rewrite.
+    """
+    if not records:
+        return []
+    with transaction(name) as rows:
+        prefix = COLLECTIONS[name]
+        highest = 0
+        for row in rows:
+            rid = str(row.get("id", ""))
+            tail = rid.split("-", 1)[-1]
+            if rid.startswith(f"{prefix}-") and tail.isdigit():
+                highest = max(highest, int(tail))
+        stored = []
+        for record in records:
+            highest += 1
+            row = dict(record)
+            row.setdefault("id", f"{prefix}-{highest:04d}")
+            row.setdefault("created_at", timeutil.stamp())
+            row.setdefault("created_by", actor)
+            row.setdefault("updated_at", None)
+            row.setdefault("updated_by", None)
+            rows.append(row)
+            stored.append(copy.deepcopy(row))
+        return stored
 
 
 def update(name: str, record_id: str, changes: dict,

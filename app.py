@@ -237,6 +237,23 @@ def create_app():
         """Map a status string to a badge tone used by the CSS."""
         return STATUS_TONES.get(status, "muted")
 
+    # Status -> the short code a dense table shows in place of the label.
+    # One table for every page, so "P" means Pending wherever it appears and
+    # a legend on one screen is true of the next. Each code is always shown
+    # with a legend beside the table, and the full label stays the tooltip.
+    STATUS_CODES = {
+        "Collected": "C",
+        "Collected from MRF": "CM",
+        "Not Collected": "NC",
+        "Pending": "P",
+        "Missed Collection": "MC",
+    }
+
+    @app.template_filter("abbr")
+    def status_abbr(status):
+        """A status's short code, or the status itself if it has none."""
+        return STATUS_CODES.get(status, status)
+
     @app.template_filter("comma")
     def comma(value):
         try:

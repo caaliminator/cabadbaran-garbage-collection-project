@@ -680,7 +680,13 @@
   color: var(--fg-muted);
   background: var(--bg-subtle);
   border-block-end: 1px solid var(--border);
-  white-space: nowrap;
+  /* A header that does not fit wraps onto a second line rather than being
+     clipped under its neighbour -- "SOURCE SCHEDUL", "ORIGINAL TRU". Bottom
+     aligned, so one- and two-line headers still share a baseline. A sort
+     arrow stays with its word: see .th-sort. */
+  white-space: normal;
+  vertical-align: bottom;
+  line-height: 1.35;
 }
 
 .table tbody td {
@@ -730,13 +736,113 @@
 /* Sortable headers */
 .table th[aria-sort] { cursor: pointer; user-select: none; }
 .table th[aria-sort]:hover { color: var(--fg-strong); }
-.table th[aria-sort] .icon { opacity: .35; margin-inline-start: var(--sp-1); vertical-align: -3px; }
+.table th[aria-sort] .icon { opacity: .35; }
+/* The label wraps normally; its last word and the arrow never part. */
+.th-sort { display: inline; }
+.th-sort__tail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .table th[aria-sort="ascending"] .icon,
 .table th[aria-sort="descending"] .icon { opacity: 1; color: var(--accent); }
 .table th[aria-sort="descending"] .icon { transform: rotate(180deg); }
 
+/* Coded status badge: one fixed width, so a column of them lines up whether
+   the code is C or CM. Restated under .table td because the table rule above
+   resets min-width to 0 for ordinary badges, and it outranks a bare class. */
+.badge--code,
+.table td .badge--code {
+  justify-content: center;
+  min-width: 3.5rem;
+  padding-inline: var(--sp-2);
+  letter-spacing: .04em;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+}
+
+/* The key for coded badges: a strip between the toolbar and the header row,
+   so it is read before the column it explains. Padded like the toolbar above
+   it, so the two line up. Named status-legend because pages.css already owns
+   .legend, as a vertical list. */
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-block-end: 1px solid var(--border-subtle);
+}
+@media (max-width: 760px) {
+  .status-legend { padding: var(--sp-3) var(--sp-4); }
+}
+.status-legend__title {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.status-legend__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+}
+.status-legend__item { display: flex; align-items: center; gap: var(--sp-2); }
+.status-legend__item dt, .status-legend__item dd { margin: 0; }
+.status-legend__item dd { font-size: var(--text-xs); color: var(--fg-default); }
+
 /* Multi-line cell lists (waste items, covered barangays) */
 .cell-list { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--fg-muted); }
+
+/* Page size picker and Newer/Older pager for a paged list. */
+.history-size { display: flex; align-items: center; gap: var(--sp-2); margin: 0; }
+.field__select--sm { --control-h: 34px; width: auto; min-width: 0; font-size: var(--text-sm); }
+.pager { display: flex; align-items: center; gap: var(--sp-2); }
+.pager [aria-disabled="true"],
+.pager button:disabled { opacity: .45; pointer-events: none; }
+
+/* The pager tables.js adds to every paged table: page size on the left,
+   Previous / Page N of M / Next on the right. It sits in the card footer
+   beside the row count, and wraps under it on a narrow screen. */
+.table-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+  margin-inline-start: auto;
+}
+.table-pager__size {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+.table-pager__page { font-size: var(--text-xs); color: var(--fg-muted); white-space: nowrap; }
+@media (max-width: 760px) {
+  .table-pager { width: 100%; margin-inline-start: 0; }
+}
+
+/* A short line under a status badge saying what the row is still waiting on.
+   Text rather than a second pill: two stacked pills in one cell read as two
+   statuses, and made every row three lines tall. */
+.cell-note {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  line-height: 1.3;
+}
+.cell-note--warning { color: var(--tone-warning-fg); }
+.cell-note .icon { width: 14px; height: 14px; }
 
 /* ---- Mobile card transform --------------------------------------------- */
 @media (max-width: 760px) {
@@ -910,6 +1016,96 @@
 
   /* Comfortable thumb target now that these are tappable. */
   .pop__panel--sheet .pop__item { min-height: 56px; align-items: center; }
+}
+
+/* ---- Notification focus (phones) ----------------------------------------
+   On a phone an alert is easy to miss: the toast is small and the collector
+   is looking at the road. So a new alert takes the screen -- the page behind
+   blurs and dims, and the alert comes forward as a card -- and opening the
+   bell blurs the page behind the list the same way. Notifications only:
+   menus and dialogs are unchanged. realtime.js and app.js add these only
+   below 760px, so a desktop keeps its toast.                              */
+.notice-focus {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-toast) + 5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(var(--topbar-h) + var(--sp-4)) var(--sp-4) var(--sp-4);
+  background: rgba(15, 23, 42, .38);
+  -webkit-backdrop-filter: blur(7px) saturate(.85);
+  backdrop-filter: blur(7px) saturate(.85);
+  opacity: 0;
+  transition: opacity .24s ease;
+}
+.notice-focus[data-open="true"] { opacity: 1; }
+
+.notice-focus__card {
+  width: 100%;
+  max-width: 420px;
+  padding: var(--sp-4);
+  border-radius: var(--r-lg);
+  border-inline-start: 4px solid var(--accent);
+  background: var(--bg-raised);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
+  transform: translateY(-18px) scale(.96);
+  transition: transform .32s cubic-bezier(.2, .8, .2, 1);
+}
+.notice-focus[data-open="true"] .notice-focus__card { transform: none; }
+.notice-focus__card--danger  { border-inline-start-color: var(--tone-danger-fg); }
+.notice-focus__card--warning { border-inline-start-color: var(--tone-warning-fg); }
+.notice-focus__card--success { border-inline-start-color: var(--tone-success-fg); }
+
+.notice-focus__head { display: flex; align-items: flex-start; gap: var(--sp-3); }
+.notice-focus__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+}
+.notice-focus__card--danger  .notice-focus__icon { background: var(--tone-danger-bg);  color: var(--tone-danger-fg); }
+.notice-focus__card--warning .notice-focus__icon { background: var(--tone-warning-bg); color: var(--tone-warning-fg); }
+.notice-focus__card--success .notice-focus__icon { background: var(--tone-success-bg); color: var(--tone-success-fg); }
+/* The bell glyph is cloned from the topbar's, which sits inside a button. */
+.notice-focus__icon .icon { width: 20px; height: 20px; }
+.notice-focus__kicker { font-size: var(--text-xs); font-weight: 700; letter-spacing: .03em;
+                        text-transform: uppercase; color: var(--fg-muted); }
+.notice-focus__title { font-size: var(--text-md); font-weight: 700; color: var(--fg-strong); margin-top: 2px; }
+.notice-focus__body { font-size: var(--text-sm); color: var(--fg-default); margin-top: var(--sp-1); }
+.notice-focus__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+.notice-focus__actions .btn { min-height: 44px; }
+
+/* Behind the bell's list: under the topbar, so the bar and the list stay
+   sharp and only the page is softened. */
+.bell-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-topbar) - 1);
+  background: rgba(15, 23, 42, .3);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s ease;
+}
+.bell-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+/* The page does not scroll away underneath a focused alert. */
+body.is-notice-focused { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .notice-focus, .notice-focus__card, .bell-scrim { transition: none; }
+  .notice-focus__card { transform: none; }
 }
 
 .pop__menu-item {
@@ -1278,6 +1474,15 @@
   background: var(--bg-surface);
   color: var(--fg-strong);
   box-shadow: var(--shadow-xs);
+}
+/* On a phone, tabs in a toolbar take the full row and share it equally --
+   three thumb-sized targets rather than three small ones in a corner. */
+@media (max-width: 760px) {
+  .toolbar .segmented { display: flex; width: 100%; }
+  .toolbar .segmented__btn { flex: 1; text-align: center; padding-inline: var(--sp-2); }
+  /* Four tabs do not fit one phone row with their counts, so they sit two
+     by two instead of being clipped at the edge. */
+  .toolbar .segmented--grid { display: grid; grid-template-columns: 1fr 1fr; }
 }
 
 /* ==========================================================================

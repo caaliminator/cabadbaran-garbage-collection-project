@@ -1,6 +1,7 @@
 {% extends 'shell.html' %}
 {% from 'partials/icons.html' import icon %}
-{% from 'partials/macros.html' import stat, status, filter_select, th, empty %}
+{% from 'partials/macros.html' import stat, status, status_code, status_legend,
+                                      filter_select, th, empty %}
 
 {% block page %}
 
@@ -74,17 +75,21 @@
     {{ filter_select('barangay', 'All Barangay', barangays) }}
   </div>
 
+  {{ status_legend(statuses) }}
+
   <div class="table-wrap">
     <table class="table" id="carryTable">
       <caption class="sr-only">Missed MRF pickups carried over to another schedule</caption>
       <thead>
         <tr>
-          {{ th('Barangay', 'barangay', w='14%') }}
-          {{ th('Source Schedule Day', w='11%') }}
-          {{ th('Waste Type', w='14%') }}
-          {{ th('Original Truck', w='9%') }}
-          {{ th('Current Truck', w='9%') }}
-          {{ th('Rescheduled To', w='11%') }}
+          {# Waste Type has no width on purpose: it holds the only variable-
+             length content, so it takes whatever the fixed columns leave. #}
+          {{ th('Barangay', 'barangay', w='12%') }}
+          {{ th('Source Schedule Day', w='12%') }}
+          {{ th('Waste Type') }}
+          {{ th('Original Truck', w='8%') }}
+          {{ th('Current Truck', w='8%') }}
+          {{ th('Rescheduled To', w='10%') }}
           {{ th('Status', 'status', w='12%') }}
           <th scope="col" style="width:248px" class="table__actions"><span class="sr-only">Actions</span></th>
         </tr>
@@ -102,9 +107,11 @@
             <td data-label="Waste Type">
               {{ r.waste_type or '—' }}
               {% if r.lines %}
-                <div class="tags">
+                {# A plain list, not pills: five pills stacked in one cell made
+                   a single row taller than the rest of the table. #}
+                <div class="cell-list" style="margin-top:var(--sp-1)">
                   {% for line in r.lines | by_waste_type %}
-                    <span class="tag">{{ line.label }} — {{ line.display }}</span>
+                    <span>{{ line.label }} — {{ line.display }}</span>
                   {% endfor %}
                 </div>
               {% endif %}
@@ -117,12 +124,17 @@
               {% elif r.due_today %}<span class="badge badge--info">Due today</span>{% endif %}
             </td>
             <td data-label="Status">
-              {{ status(r.status) }}
+              {{ status_code(r.status) }}
               {# What this row is waiting on, said plainly. A missed carry-over
                  is only ever one button away from being arranged, and the
-                 point of this page is to make that button obvious. #}
+                 point of this page is to make that button obvious. Short in
+                 the cell, full sentence on hover and for a screen reader. #}
               {% if r.missing %}
-                <span class="badge badge--warning">{{ r.missing }}</span>
+                <span class="cell-note cell-note--warning" title="{{ r.missing }}">
+                  {{ icon('alert', 'icon--sm') }}
+                  <span aria-hidden="true">{{ r.missing_short }}</span>
+                  <span class="sr-only">{{ r.missing }}</span>
+                </span>
               {% endif %}
             </td>
             <td class="table__actions">

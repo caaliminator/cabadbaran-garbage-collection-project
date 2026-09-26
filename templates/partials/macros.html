@@ -26,6 +26,39 @@
 {% endmacro %}
 
 
+{# ---- Coded status, for dense tables ------------------------------------
+   The same badge with a short code in place of the label, so a Status
+   column can be narrow without its text wrapping onto two lines. Always
+   paired with status_legend() on the same card: a code nobody can decode is
+   worse than a long label. The full label is still the tooltip, and still
+   what a screen reader hears. The codes themselves are the `abbr` filter in
+   app.py, so every table uses the same ones.                              #}
+{% macro status_code(label) %}
+<span class="badge badge--{{ label|tone }} badge--code" title="{{ label }}">
+  <span class="dot" aria-hidden="true"></span>
+  <span aria-hidden="true">{{ label|abbr }}</span>
+  <span class="sr-only">{{ label }}</span>
+</span>
+{% endmacro %}
+
+{# The key for those codes: a strip that sits between a table's toolbar and
+   its header row, so it is read before the column it explains. #}
+{% macro status_legend(labels) %}
+<div class="status-legend">
+  <span class="status-legend__title" aria-hidden="true">Legend</span>
+  <dl class="status-legend__list" aria-label="Status codes">
+    {% for label in labels %}
+      <div class="status-legend__item">
+        <dt><span class="badge badge--{{ label|tone }} badge--code">
+          <span class="dot" aria-hidden="true"></span>{{ label|abbr }}</span></dt>
+        <dd>{{ label }}</dd>
+      </div>
+    {% endfor %}
+  </dl>
+</div>
+{% endmacro %}
+
+
 {# ---- KPI / stat card ---------------------------------------------------
    tone: info | success | warning | danger | violet                        #}
 {% macro stat(label, value, hint=None, ico='package', tone='info', suffix=None) %}
@@ -179,7 +212,15 @@
   <th scope="col" data-sort-key="{{ key }}" aria-sort="none"
       {% if w %}style="width:{{ w }}"{% endif %}
       {% if numeric %}class="table__num"{% endif %}>
-    {{ label }}{{ icon('arrow-up', 'icon--sm') }}
+    {# The label wraps like any header, but its last word and the arrow are
+       one unbreakable unit: base.css makes every svg a block, so left bare
+       the arrow dropped onto a line of its own, and making the whole label
+       unbreakable instead clipped long ones ("ASSIGNED BARAN"). #}
+    {%- set words = label.split(' ') -%}
+    <span class="th-sort">
+      {%- if words|length > 1 %}{{ words[:-1]|join(' ') }} {% endif -%}
+      <span class="th-sort__tail">{{ words[-1] }}{{ icon('arrow-up', 'icon--sm') }}</span>
+    </span>
   </th>
 {% else %}
   <th scope="col" {% if w %}style="width:{{ w }}"{% endif %}

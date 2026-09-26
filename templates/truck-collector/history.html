@@ -1,6 +1,8 @@
 {% extends 'shell.html' %}
 {% from 'partials/icons.html' import icon %}
 {% from 'partials/macros.html' import status, empty %}
+{% from 'partials/mrf_detail.html' import pickup_button, delivery_button,
+                                          pickup_modal, delivery_modal %}
 
 {% block page %}
 
@@ -30,17 +32,21 @@
 </form>
 
 {# ---- MRF pickups ------------------------------------------------------ #}
-<section class="card" style="margin-bottom:var(--sp-5)">
+<section class="card" style="margin-bottom:var(--sp-5)"
+         data-table-controller="pickupHistory" data-table-row-selector=".entry">
   <div class="card__head">
     <h2 class="card__title">MRF Pickup History</h2>
     <span class="badge badge--info">{{ mrf_rows|length }}</span>
   </div>
 
-  <div>
+  <div id="pickupHistory">
     {% for r in mrf_rows %}
       <article class="entry">
         <div style="min-width:0">
-          <h3 class="entry__title">{{ r.mrf_name }}</h3>
+          <h3 class="entry__title">
+            {{ r.mrf_name }}
+            {% if r.is_carry_over %}<span class="badge badge--warning">Carry-over</span>{% endif %}
+          </h3>
           <p class="entry__sub">Source schedule: {{ r.source_schedule_day }}</p>
           <p class="entry__sub">Waste type: {{ r.waste_type or '—' }}</p>
 
@@ -64,22 +70,26 @@
           <span>{{ r.date_display }}</span>
           <span>{{ r.time_display }}</span>
           <span class="mono">{{ r.truck_code or '—' }}</span>
+          {{ pickup_button(r) }}
         </div>
       </article>
-    {% else %}
-      {{ empty('No pickups yet', 'Your recorded MRF pickups will appear here.', 'recycle') }}
     {% endfor %}
   </div>
+  {% if not mrf_rows %}
+    {{ empty('No pickups yet', 'Your recorded MRF pickups will appear here.', 'recycle') }}
+  {% endif %}
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
 </section>
 
 {# ---- Landfill deliveries ---------------------------------------------- #}
-<section class="card">
+<section class="card" data-table-controller="deliveryHistory"
+         data-table-row-selector=".entry">
   <div class="card__head">
     <h2 class="card__title">Final Disposal Delivery History</h2>
     <span class="badge badge--info">{{ disposal_rows|length }}</span>
   </div>
 
-  <div>
+  <div id="deliveryHistory">
     {% for r in disposal_rows %}
       <article class="entry">
         <div style="min-width:0">
@@ -109,13 +119,19 @@
           <span>{{ r.date_display }}</span>
           <span>{{ r.time_display }}</span>
           <span class="mono">{{ r.truck_code }}</span>
+          {{ delivery_button(r) }}
         </div>
       </article>
-    {% else %}
-      {{ empty('No deliveries yet',
-               'Loads you deliver to the landfill will be listed here.', 'truck') }}
     {% endfor %}
   </div>
+  {% if not disposal_rows %}
+    {{ empty('No deliveries yet',
+             'Loads you deliver to the landfill will be listed here.', 'truck') }}
+  {% endif %}
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
 </section>
+
+{{ pickup_modal() }}
+{{ delivery_modal() }}
 
 {% endblock %}

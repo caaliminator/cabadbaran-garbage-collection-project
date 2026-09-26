@@ -160,11 +160,29 @@
     open(trigger, panel) {
       panel.dataset.open = 'true';
       trigger.setAttribute('aria-expanded', 'true');
+      // On a phone the bell's list gets the page blurred behind it, so the
+      // alerts are what the eye lands on. The bell only: the user menu is two
+      // items and is left as it was.
+      if (trigger.classList.contains('bell')
+          && window.matchMedia('(max-width: 760px)').matches) {
+        this.scrim().dataset.open = 'true';
+      }
+    },
+
+    scrim() {
+      if (!this._scrim) {
+        this._scrim = document.createElement('div');
+        this._scrim.className = 'bell-scrim';
+        this._scrim.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(this._scrim);
+      }
+      return this._scrim;
     },
 
     closeAll() {
       $$('[data-pop-trigger]').forEach((t) => t.setAttribute('aria-expanded', 'false'));
       $$('.pop__panel').forEach((p) => (p.dataset.open = 'false'));
+      if (this._scrim) this._scrim.dataset.open = 'false';
     },
   };
 

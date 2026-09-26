@@ -1,0 +1,199 @@
+{% extends 'shell.html' %}
+{% from 'partials/icons.html' import icon %}
+{% from 'partials/macros.html' import stat, status, status_code, status_legend, th, empty %}
+{% from 'partials/mrf_detail.html' import pickup_button, delivery_button,
+                                          pickup_modal, delivery_modal %}
+
+{% block page %}
+
+{# ===========================================================================
+   One day of History, in full: the summary card it came from, the barangays
+   that make up its figures, and the MRF pickups and landfill deliveries
+   themselves. Opened from a day card's View Details on History & Reports.
+   =========================================================================== #}
+
+<div class="page__head">
+  <div>
+    <a class="card__link" href="{{ url_for('city.reports') }}">
+      <span style="display:flex;transform:rotate(180deg)">{{ icon('arrow-right', 'icon--sm') }}</span>
+      Back to History &amp; Reports
+    </a>
+    <h1 class="page__title" style="margin-top:var(--sp-2)">
+      {{ date_display }}
+      {% if is_today %}<span class="badge badge--info">Live</span>
+      {% elif day.is_frozen %}<span class="badge badge--muted">Final</span>{% endif %}
+    </h1>
+    <p class="page__sub">
+      {% if day.is_frozen %}
+        The figures are this day's closed record, exactly as reported. The
+        lists below are the records they were made from.
+      {% else %}
+        {{ 'Today is still in progress, so these figures are still changing.' if is_today
+           else 'This day has not been closed yet, so its figures are worked out from the records.' }}
+      {% endif %}
+    </p>
+  </div>
+  <div class="page__actions">
+    <a class="btn btn--secondary" href="{{ url_for('city.property', date=date) }}">
+      {{ icon('home', 'icon--sm') }} Every property that day
+    </a>
+  </div>
+</div>
+
+<section class="grid grid--stats" aria-label="The day's figures">
+  {{ stat('Properties Collected',
+          day.properties.collected ~ ' of ' ~ day.properties.total,
+          day.properties.percent ~ '% · ' ~ day.properties.not_collected ~ ' not collected · '
+          ~ day.properties.pending ~ ' pending', 'home', 'success') }}
+  {{ stat('Collected Load', day.load.total, day.entries ~ ' households recorded',
+          'package', 'info') }}
+  {{ stat('MRFs Collected', day.mrf.collected ~ ' of ' ~ day.mrf.total,
+          day.mrf.missed ~ ' missed'
+          ~ (' · ' ~ day.mrf.carry_overs_collected ~ ' carry-over(s) collected'
+             if day.mrf.carry_overs_collected else ''),
+          'recycle', 'warning' if day.mrf.missed else 'success') }}
+  {{ stat('Landfill Deliveries', day.deliveries.count,
+          (day.carry_overs_opened ~ ' carry-over(s) opened') if day.carry_overs_opened
+          else 'No carry-overs opened', 'truck', 'violet') }}
+</section>
+
+{# ---- By barangay -------------------------------------------------------- #}
+<section class="card" data-table-controller="dayBarangays">
+  <div class="toolbar">
+    <h2 class="toolbar__title">By Barangay</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="table" id="dayBarangays">
+      <caption class="sr-only">Each barangay's collection on {{ date_display }}</caption>
+      <thead>
+        <tr>
+          {{ th('Barangay', 'name', w='20%') }}
+          {{ th('Collected', 'collected', w='14%') }}
+          {{ th('Not Collected', 'notcollected', w='11%') }}
+          {{ th('Pending', 'pending', w='10%') }}
+          {{ th('Collected Load') }}
+          {{ th('MRF Pickup', w='15%') }}
+          <th scope="col" style="width:120px" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in barangay_rows %}
+          <tr data-name="{{ b.name }}" data-collected="{{ b.percent }}"
+              data-notcollected="{{ b.not_collected }}" data-pending="{{ b.pending }}">
+            <td data-label="Barangay"><span class="strong">{{ b.name }}</span></td>
+            <td data-label="Collected">
+              {{ b.collected }} of {{ b.total }}
+              <span class="sub">{{ b.percent }}%</span>
+            </td>
+            <td data-label="Not Collected">{{ b.not_collected }}</td>
+            <td data-label="Pending">{{ b.pending }}</td>
+            <td data-label="Collected Load" class="text-sm">{{ b.load }}</td>
+            <td data-label="MRF Pickup">
+              {% if b.mrf == 'Collected' %}<span class="badge badge--success">Collected</span>
+              {% elif b.mrf == 'Missed' %}<span class="badge badge--danger">Missed</span>
+              {% else %}<span class="muted text-sm">None recorded</span>{% endif %}
+            </td>
+            <td class="table__actions">
+              <a class="btn btn--secondary btn--sm"
+                 href="{{ url_for('city.property', date=date, barangay=b.id) }}"
+                 aria-label="Every property in {{ b.name }} on {{ date_display }}">
+                Properties
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+</section>
+
+{# ---- MRF pickups -------------------------------------------------------- #}
+<section class="card" data-table-controller="dayPickups">
+  <div class="toolbar">
+    <h2 class="toolbar__title">MRF Pickups</h2>
+  </div>
+  {{ status_legend(['Collected from MRF', 'Not Collected', 'Pending']) }}
+  <div class="table-wrap">
+    <table class="table" id="dayPickups">
+      <caption class="sr-only">Every barangay MRF on {{ date_display }}</caption>
+      <thead>
+        <tr>
+          {{ th('Barangay', 'barangay', w='22%') }}
+          {{ th('Waste Type') }}
+          {{ th('Truck', 'truck', w='12%') }}
+          {{ th('Time', w='12%') }}
+          {{ th('Status', 'status', w='11%') }}
+          <th scope="col" style="width:72px" class="table__actions"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in pickups %}
+          <tr data-barangay="{{ r.barangay }}" data-truck="{{ r.truck }}" data-status="{{ r.status }}">
+            <td data-label="Barangay">
+              <span class="strong">{{ r.barangay }}</span>
+              {% if r.is_carry_over %}
+                <span class="sub">Carry-over from {{ r.source_schedule_day }}</span>
+              {% endif %}
+            </td>
+            <td data-label="Waste Type">
+              {{ r.waste_type }}
+              {% if r.load.lines %}<span class="sub">{{ r.load.total }}</span>{% endif %}
+            </td>
+            <td data-label="Truck"><span class="mono">{{ r.truck }}</span></td>
+            <td data-label="Time" class="muted text-xs">{{ r.time_display or '—' }}</td>
+            <td data-label="Status">{{ status_code(r.status) }}</td>
+            <td class="table__actions">{{ pickup_button(r, r.barangay) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+</section>
+
+{# ---- Landfill deliveries ------------------------------------------------ #}
+<section class="card" data-table-controller="dayDeliveries">
+  <div class="toolbar">
+    <h2 class="toolbar__title">Landfill Deliveries</h2>
+  </div>
+  {% if deliveries %}
+    <div class="table-wrap">
+      <table class="table" id="dayDeliveries">
+        <caption class="sr-only">Loads delivered to the landfill on {{ date_display }}</caption>
+        <thead>
+          <tr>
+            {{ th('Truck', w='14%') }}
+            {{ th('Load', w='20%') }}
+            {{ th('MRFs Included') }}
+            {{ th('Time', w='12%') }}
+            <th scope="col" style="width:72px" class="table__actions"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in deliveries %}
+            <tr>
+              <td data-label="Truck"><span class="mono strong">{{ d.truck_code }}</span></td>
+              <td data-label="Load">{{ d.load.total }}</td>
+              <td data-label="MRFs Included">
+                <div class="tags">{% for b in d.barangays %}<span class="tag">{{ b }}</span>{% endfor %}</div>
+              </td>
+              <td data-label="Time" class="muted text-xs">{{ d.time_display }}</td>
+              <td class="table__actions">{{ delivery_button(d) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card__foot"><span class="text-xs muted" data-table-count></span></div>
+  {% else %}
+    <div class="card__body">
+      {{ empty('No deliveries that day', 'No truck delivered to the landfill on ' ~ date_display ~ '.', 'truck') }}
+    </div>
+  {% endif %}
+</section>
+
+{{ pickup_modal() }}
+{{ delivery_modal() }}
+
+{% endblock %}

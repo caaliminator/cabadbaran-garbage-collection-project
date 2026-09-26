@@ -157,6 +157,35 @@ results.append(ok("but the pin still has a position", _pin(_b1)["lat"] is not No
 results.append(ok("clearing an unset one is a no-op",
                   geo_service.clear_mrf_location(_b1) is False))
 
+print("\n[7] batch writes, the file format, and the read cache")
+import json as _json
+_before = storage.count("notifications")
+_made = storage.insert_many("notifications", [
+    {"audience": "public", "type": "test", "message": f"batch {i}"} for i in range(3)])
+results.append(ok("a batch is written in one go and every row is stamped",
+                  storage.count("notifications") == _before + 3
+                  and all(r["id"] and r["created_at"] for r in _made)))
+results.append(ok("with distinct, sequential ids",
+                  len({r["id"] for r in _made}) == 3))
+results.append(ok("a created_at given by the caller is kept",
+                  storage.insert_many("notifications", [
+                      {"message": "dated", "created_at": "2026-01-01T09:00:00+08:00"}])[0]
+                  ["created_at"] == "2026-01-01T09:00:00+08:00"))
+_raw = (Path(Config.DATA_DIR) / "notifications.json").read_text(encoding="utf-8")
+results.append(ok("files are still valid JSON, one record per line",
+                  isinstance(_json.loads(_raw), list)
+                  and _raw.count("\n") >= storage.count("notifications")))
+with storage.read_cache():
+    _first = storage.read("barangays")
+    results.append(ok("inside read_cache a collection is parsed once and shared",
+                      storage.read("barangays") is _first))
+    storage.insert("notifications", {"message": "written inside the cache"})
+    results.append(ok("and a write drops its copy, so a read is never stale",
+                      any(n.get("message") == "written inside the cache"
+                          for n in storage.read("notifications"))))
+results.append(ok("outside it, every read is a fresh list again",
+                  storage.read("barangays") is not storage.read("barangays")))
+
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{sum(1 for r in results if r)}/{len(results)} checks passed")
 sys.exit(0 if all(results) else 1)

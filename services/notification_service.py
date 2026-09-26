@@ -32,6 +32,11 @@ CARRY_OVER_CREATED = "carry_over_created"
 PUBLIC_REPORT = "public_report"
 DELIVERY_COMPLETED = "delivery_completed"
 SCHEDULE_UPDATED = "schedule_updated"
+# The barangay's own MRF, as its tricycle collectors and admin need to hear
+# about it: the truck came and took the load, or a missed load now has a
+# truck and a day.
+MRF_COLLECTED = "mrf_collected"
+CARRY_OVER_SCHEDULED = "carry_over_scheduled"
 
 TONES = {
     TRUCK_APPROACHING: "info",
@@ -42,6 +47,8 @@ TONES = {
     PUBLIC_REPORT: "warning",
     DELIVERY_COMPLETED: "success",
     SCHEDULE_UPDATED: "info",
+    MRF_COLLECTED: "success",
+    CARRY_OVER_SCHEDULED: "info",
 }
 
 ICONS = {
@@ -53,6 +60,8 @@ ICONS = {
     PUBLIC_REPORT: "home",
     DELIVERY_COMPLETED: "check",
     SCHEDULE_UPDATED: "calendar",
+    MRF_COLLECTED: "recycle",
+    CARRY_OVER_SCHEDULED: "calendar",
 }
 
 
@@ -87,14 +96,21 @@ LINKS: dict[str, dict[str, str]] = {
                           "truck_collector": "collector.truck_unavailable"},
     ASSIGNMENT_CHANGED:  {"tricycle_collector": "collector.tricycle_route",
                           "truck_collector": "collector.truck_route"},
+    # The tricycle route page carries a "Your MRF today" card, which is what
+    # answers every alert about the barangay's MRF; the barangay dashboard has
+    # the same card for the admin.
     CARRY_OVER_CREATED:  {"city_admin": "city.carry_over",
                           "barangay_admin": "brgy.collections",
-                          "tricycle_collector": "collector.tricycle_list"},
+                          "tricycle_collector": "collector.tricycle_route"},
+    MRF_COLLECTED:       {"barangay_admin": "brgy.dashboard",
+                          "tricycle_collector": "collector.tricycle_route"},
+    CARRY_OVER_SCHEDULED: {"barangay_admin": "brgy.dashboard",
+                           "tricycle_collector": "collector.tricycle_route"},
     PUBLIC_REPORT:       {"city_admin": "city.resident_reports",
                           "barangay_admin": "brgy.reports",
                           # The report names a household on this round, so the
                           # collector's own property list is what answers it.
-                          "tricycle_collector": "collector.tricycle_list"},
+                          "tricycle_collector": "collector.tricycle_route"},
     DELIVERY_COMPLETED:  {"city_admin": "city.mrf",
                           "truck_collector": "collector.truck_route"},
     SCHEDULE_UPDATED:    {"city_admin": "city.schedule",

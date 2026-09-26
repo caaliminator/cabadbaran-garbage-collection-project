@@ -17,7 +17,7 @@
     <span class="text-xs muted">Summary only — one entry per day</span>
   </div>
 
-  <div class="card__body card__body--flush">
+  <div class="card__body card__body--flush history-list">
     {% for day in feed %}
       <article class="entry">
         <div style="min-width:0">
@@ -34,23 +34,17 @@
               · {{ day.properties.not_collected }} not collected
               · {{ day.properties.pending }} pending
             </p>
+            {# Tricycle collection in this barangay only. The MRF pickup and
+               its carry-overs are the truck's work and live on the City Hall
+               side; mixing them in here made a barangay's own record read as
+               if it covered the truck too. #}
             <div class="entry__load">
               <div class="entry__load-row">
                 <span>Collected load</span><span>{{ day.load.total }}</span>
               </div>
               <div class="entry__load-row">
-                <span>MRF pickup</span>
-                <span>
-                  {% if day.mrf.collected %}Collected
-                  {% elif day.mrf.missed %}Missed
-                  {% else %}No pickup recorded{% endif %}
-                </span>
+                <span>Households recorded</span><span>{{ day.entries }}</span>
               </div>
-              {% if day.carry_overs_opened %}
-                <div class="entry__load-row">
-                  <span>Carry-overs opened</span><span>{{ day.carry_overs_opened }}</span>
-                </div>
-              {% endif %}
             </div>
           {% else %}
             <p class="entry__sub muted">No collection activity recorded.</p>
@@ -62,6 +56,15 @@
           {% if day.properties.disputed %}
             <span class="badge badge--warning">{{ day.properties.disputed }} disputed</span>
           {% endif %}
+          {# The day behind the summary: every collector's totals and every
+             household's record, each with its own View Details. That is the
+             Collections page for the date, so this opens it rather than
+             repeating it. #}
+          <a class="btn btn--secondary btn--sm"
+             href="{{ url_for('brgy.collections', date=day.date, back='history') }}"
+             aria-label="View the details of {{ day.date_display }}">
+            {{ icon('eye', 'icon--sm') }} View details
+          </a>
         </div>
       </article>
     {% else %}

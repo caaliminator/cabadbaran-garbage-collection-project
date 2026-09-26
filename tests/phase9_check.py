@@ -100,7 +100,18 @@ assignment_service.save_truck_assignment(Form({
     "operator_id": op2["id"], "truck_code": "TRK-02", "covered_mrfs": [B2],
     "effective_date": TODAY, "status": "Active"}), None, ADMIN)
 
+# A tricycle collector in the other barangay, to prove MRF alerts stay with
+# the barangay whose MRF it is.
+col2 = user_service.create({"full_name": "Col 9b", "username": "col_nineb",
+                            "role": "tricycle_collector", "assigned_barangay": B2,
+                            "assigned_vehicle": "TRI-02", "password": "goodpass1",
+                            "confirm_password": "goodpass1"}, ADMIN)
+assignment_service.save_tricycle_assignment(Form({
+    "collector_id": col2["id"], "barangay_id": B2, "tricycle_code": "TRI-02",
+    "effective_date": TODAY, "status": "Active"}), None, ADMIN)
+
 COL = public_view(storage.get("users", col["id"]))
+COL2 = public_view(storage.get("users", col2["id"]))
 OP = public_view(storage.get("users", op["id"]))
 OP2 = public_view(storage.get("users", op2["id"]))
 
@@ -205,6 +216,10 @@ ok("STORED so does the barangay admin whose MRF it is",
    any(notes_for(badmin, notification_service.CARRY_OVER_CREATED)))
 ok("STORED another barangay's admin does not",
    not any(notes_for(badmin2, notification_service.CARRY_OVER_CREATED)))
+ok("STORED the barangay's tricycle collector hears their MRF was missed",
+   any(notes_for(COL, notification_service.CARRY_OVER_CREATED)))
+ok("STORED a tricycle collector in another barangay does not",
+   not any(notes_for(COL2, notification_service.CARRY_OVER_CREATED)))
 ok("STORED it appears on the city's Carry-Over worklist as Missed Collection",
    [r["barangay_id"] for r in carryover_service.listing(carryover_service.MISSED)] == [B1])
 ok("STORED the city's MRF page shows the barangay as Not Collected",
@@ -233,32 +248,46 @@ ok("LIVE  the operator is told the date moved",
    "notification_new" in fake.events_for(f"user:{op2['id']}"))
 ok("STORED the reschedule is in their bell",
    any("rescheduled" in (n.get("title") or "").lower() for n in notes_for(OP2)))
-ok("STORED the stop is now on that operator's MRF list",
+_scheduled = notes_for(COL, notification_service.CARRY_OVER_SCHEDULED)
+ok("STORED the tricycle collector hears when the missed load will be taken",
+   _scheduled and "TRK-02" in _scheduled[0]["message"])
+ok("LIVE  and it is pushed to their barangay's room",
+   "notification_new" in fake.events_for(B1_ROOM))
+ok("STORED another barangay's tricycle collector does not",
+   not notes_for(COL2, notification_service.CARRY_OVER_SCHEDULED))
+ok("STORED the stop is now on that operator's carry-over list",
    any(c["barangay_id"] == B1 and c.get("is_carry_over")
-       for c in mrf_service.cards_for_operator(OP2["id"])))
+       for c in mrf_service.carry_over_cards_for_operator(OP2["id"])))
 ok("STORED and not on the original operator's",
-   not any(c["barangay_id"] == B1 and c.get("is_carry_over")
-           for c in mrf_service.cards_for_operator(OP["id"])))
+   not any(c["barangay_id"] == B1
+           for c in mrf_service.carry_over_cards_for_operator(OP["id"])))
 
 # ---------------------------------------------------------------------------
 print("\n[5] the reassigned truck collects it -> everyone downstream")
 # ---------------------------------------------------------------------------
 fake.clear()
-closing = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP2)
+closing = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP2,
+                                  carry_over_id=co["id"])
 ok("STORED the carry-over closed itself",
    carryover_service.outstanding_for(B1) is None)
 ok("STORED it now sits in the city's Collected view",
    [r["barangay_id"] for r in carryover_service.listing(carryover_service.COLLECTED)] == [B1])
+_carry_row = next((r for r in mrf_service.city_listing(TODAY, barangay_id=B1)
+                   if r["is_carry_over"]), None)
 ok("STORED the city's MRF page for today shows it collected",
-   next(r["status"] for r in mrf_service.city_listing(TODAY, barangay_id=B1))
-   == mrf_service.COLLECTED)
+   _carry_row is not None and _carry_row["status"] == mrf_service.COLLECTED)
 ok("STORED and marks that row as a carry-over",
-   mrf_service.city_listing(TODAY, barangay_id=B1)[0]["carry_over"] is not None)
+   _carry_row is not None and _carry_row["carry_over"] is not None)
 ok("STORED the load moved onto the collecting truck",
    mrf_service.running_load(OP2["id"])["sacks"] == 6)
 ok("LIVE  the barangay and the city both hear the pickup",
    "mrf_pickup_saved" in fake.events_for(B1_ROOM)
    and "mrf_pickup_saved" in fake.events_for(CITY_ROOM))
+ok("STORED the tricycle collector hears the missed load was collected",
+   any(n["title"] == "Carry-over collected"
+       for n in notes_for(COL, notification_service.MRF_COLLECTED)))
+ok("STORED another barangay's tricycle collector does not",
+   not notes_for(COL2, notification_service.MRF_COLLECTED))
 
 fake.clear()
 delivery = mrf_service.deliver(OP2)
@@ -267,6 +296,20 @@ ok("STORED the city's delivery list has it",
    any(d["id"] == delivery["id"] for d in mrf_service.deliveries_listing(TODAY)))
 ok("STORED the day's history counts that delivery",
    history_service.compute(TODAY)["deliveries"]["count"] == 1)
+
+# The regular round: the first truck comes back and collects today's load.
+fake.clear()
+_regular = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP)
+_collected = [n for n in notes_for(COL, notification_service.MRF_COLLECTED)
+              if n["title"] == "MRF collected"]
+ok("STORED the tricycle collector hears the truck collected today's load",
+   len(_collected) == 1 and "TRK-01" in _collected[0]["message"])
+ok("LIVE  pushed to their barangay's room",
+   "notification_new" in fake.events_for(B1_ROOM))
+mrf_service.save_pickup(Form({"status": "Collected from MRF", "note": "fixed"}), B1, OP)
+ok("STORED saving the same pickup again does not alert them twice",
+   len([n for n in notes_for(COL, notification_service.MRF_COLLECTED)
+        if n["title"] == "MRF collected"]) == 1)
 
 # ---------------------------------------------------------------------------
 print("\n[6] a resident reports -> barangay admin and city admin")

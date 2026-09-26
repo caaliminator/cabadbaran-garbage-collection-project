@@ -291,6 +291,47 @@ ok("assignment deleted with the account",
 ok("no orphaned assignment points at a deleted user",
    all(storage.get("users", r["operator_id"]) for r in storage.read("assignments_truck")))
 
+print("\n[10] a record's created date is when it was really created")
+# The client's rule: Date Created is the actual moment of creation, per
+# record -- never one date shared by everything, and never moved by an edit
+# or by something else being created later. The clock is shifted between
+# creations so "different days" is visible at the resolution pages show.
+from datetime import timedelta
+from services import property_service
+_real_now = timeutil.now
+try:
+    timeutil.now = lambda: _real_now() - timedelta(days=10)
+    _old = user_service.create({"full_name": "Made Earlier", "username": "made_earlier",
+                                "role": "barangay_admin", "assigned_barangay": "brgy-05",
+                                "password": "goodpass1", "confirm_password": "goodpass1"},
+                               ADMIN)
+    _old_house = property_service.create(Form({"owner_name": "Earlier House",
+                                               "type": "House", "purok": "Purok 1"}),
+                                         "brgy-05", ADMIN)
+    timeutil.now = _real_now
+    _new = user_service.create({"full_name": "Made Today", "username": "made_today",
+                                "role": "barangay_admin", "assigned_barangay": "brgy-06",
+                                "password": "goodpass1", "confirm_password": "goodpass1"},
+                               ADMIN)
+finally:
+    timeutil.now = _real_now
+
+_ten_days_ago = timeutil.date_str(timeutil.today() - timedelta(days=10))
+ok("an account keeps the day it was created",
+   storage.get("users", _old["id"])["created_at"][:10] == _ten_days_ago)
+ok("so does a property",
+   storage.get("properties", _old_house["id"])["created_at"][:10] == _ten_days_ago)
+ok("an account created today reads today, and the earlier one did not move",
+   storage.get("users", _new["id"])["created_at"][:10] == timeutil.today_str()
+   and storage.get("users", _old["id"])["created_at"][:10] == _ten_days_ago)
+_before = storage.get("users", _old["id"])["created_at"]
+user_service.edit(_old["id"], Form({"full_name": "Made Earlier, Renamed",
+                                    "username": "made_earlier", "role": "barangay_admin",
+                                    "assigned_barangay": "brgy-05"}), ADMIN)
+ok("editing an account changes its updated date, not its created date",
+   storage.get("users", _old["id"])["created_at"] == _before
+   and storage.get("users", _old["id"])["updated_at"][:10] == timeutil.today_str())
+
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{sum(results)}/{len(results)} checks passed")
 sys.exit(0 if all(results) else 1)

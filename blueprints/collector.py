@@ -32,8 +32,9 @@ collector_bp = Blueprint("collector", __name__)
 
 TRICYCLE_NAV = [
     {"group": None, "items": [
+        # One page for the day's round: its tabs are what the separate
+        # Collection List used to be.
         ("collector.tricycle_route", "Property", "home"),
-        ("collector.tricycle_list", "Collection List", "file"),
     ]},
     {"group": "Duty", "items": [
         ("collector.tricycle_unavailable", "Unavailable for Duty", "alert"),
@@ -111,55 +112,97 @@ def tricycle_route():
     entries = collection_service.entries_for_date(
         collector_id=(current_user() or {}).get("id"))
 
+    # Four tabs over today's list. Pending is the round still to do, by purok
+    # then name -- households whose tag says nothing is expected today come
+    # last, since nobody is waiting on them. Not Collected and Collected are
+    # the day's recorded stops, newest first. All is every stop, in that
+    # order -- which is the order the rows are sent in, so each tab is just a
+    # filter over it.
+    def by_place(r):
+        return (1 if r["exempt"] else 0, r.get("purok") or "", r.get("owner_name") or "")
+
+    def newest_first(group):
+        return sorted(group, key=lambda r: (r.get("entry") or {}).get("timestamp") or "",
+                      reverse=True)
+
+    pending = sorted((r for r in rows if r["status"] == collection_service.PENDING),
+                     key=by_place)
+    missed = newest_first(r for r in rows if r["status"] == collection_service.NOT_COLLECTED)
+    done = newest_first(r for r in rows if r["status"] == collection_service.COLLECTED)
+    for group, name in ((pending, "pending"), (missed, "not_collected"),
+                        (done, "collected")):
+        for r in group:
+            r["group"] = name
+
+    tab = request.args.get("tab", "pending")
+    tab = tab if tab in ("pending", "not_collected", "collected", "all") else "pending"
+
     return render_template(
         "tricycle-collector/route.html",
         page_title="Property",
-        rows=rows,
+        rows=pending + missed + done,
+        tab=tab,
+        tab_counts={"pending": len(pending), "not_collected": len(missed),
+                    "collected": len(done), "all": len(rows)},
+        puroks=sorted({r["purok"] for r in rows if r.get("purok")}),
         assignment=assignment,
         barangay=property_service.barangay_name(assignment.get("barangay_id"))
                  if assignment else None,
         counts=collection_service.counts(properties),
         totals=collection_service.totals(entries),
         today_row=schedule_service.for_date(),
+        mrf=_mrf_today(assignment),
         **_shell("tricycle"),
     )
+
+
+def _mrf_today(assignment):
+    """
+    The collector's barangay MRF as they need to see it: whether the truck
+    has come for today's load, and whether any missed load is still owed and
+    when it will be taken. This is the page every MRF alert links to.
+    """
+    from services import carryover_service
+
+    barangay_id = (assignment or {}).get("barangay_id")
+    if not barangay_id:
+        return None
+    card = mrf_service.mrf_card(barangay_id)
+    pickup = card.get("entry") or {}
+    stamp = timeutil.parse_stamp(pickup.get("timestamp"))
+
+    owed = []
+    for row in storage.find("carry_overs", barangay_id=barangay_id):
+        if not carryover_service.is_open(row):
+            continue
+        missed_on = row.get("batch_date") or row.get("first_missed_date")
+        owed.append({
+            "missed": missed_on or "",
+            "missed_display": timeutil.display_date(missed_on),
+            "arranged": carryover_service.stage_of(row) == carryover_service.PENDING,
+            "truck": row.get("current_truck"),
+            "date_display": timeutil.display_date(row.get("reschedule_date"))
+                            if row.get("reschedule_date") else "",
+        })
+    owed.sort(key=lambda r: r["missed"])
+
+    return {
+        **card,
+        "truck": pickup.get("truck_code"),
+        "time_display": timeutil.display_time(stamp) if stamp else "",
+        "owed": owed,
+    }
 
 
 @collector_bp.route("/tricycle/list")
 @role_required("tricycle_collector")
 def tricycle_list():
     """
-    Today's route as a table rather than a stack of tappable cards.
-
-    Same rows, same scope -- `for_collector` is the only way a property
-    reaches either page, so this cannot show a household the route page would
-    not. The card list wins outdoors, one thumb at a time; a table wins when
-    the collector or a supervisor wants to scan the whole round, sort it, or
-    find one name.
+    The old Collection List. Its job -- the whole day's list, searchable and
+    filterable -- is now the Property page's All tab, so this sends anything
+    still pointing here (a bookmark, an older notification) to that tab.
     """
-    assignment = _my_assignment()
-    properties = property_service.for_collector(assignment)
-    rows = collection_service.route_with_status(properties)
-
-    # Pending first: what is left to do is the reason to open this page.
-    order = {collection_service.PENDING: 0,
-             collection_service.NOT_COLLECTED: 1,
-             collection_service.COLLECTED: 2}
-    rows.sort(key=lambda r: (order.get(r["status"], 3),
-                             r.get("purok") or "", r.get("owner_name") or ""))
-
-    return render_template(
-        "tricycle-collector/list.html",
-        page_title="Collection List",
-        rows=rows,
-        assignment=assignment,
-        barangay=property_service.barangay_name(assignment.get("barangay_id"))
-                 if assignment else None,
-        counts=collection_service.counts(properties),
-        puroks=sorted({r["purok"] for r in rows if r.get("purok")}),
-        today_row=schedule_service.for_date(),
-        **_shell("tricycle"),
-    )
+    return redirect(url_for("collector.tricycle_route", tab="all"))
 
 
 @collector_bp.route("/tricycle/record/<property_id>", methods=["GET", "POST"])
@@ -182,12 +225,18 @@ def tricycle_record(property_id):
 
     if request.method == "POST":
         if not editable:
+            if _is_replay():
+                return _replay_refused(
+                    ValidationError({"form": "That entry can no longer be changed."}),
+                    prop["owner_name"])
             flash("That entry can no longer be changed.", "danger")
             return redirect(url_for("collector.tricycle_route"))
         try:
             saved = collection_service.save_entry(
                 request.form, request.files, prop, user)
         except ValidationError as exc:
+            if _is_replay():
+                return _replay_refused(exc, prop["owner_name"])
             for message in exc.errors.values():
                 flash(message, "danger")
             return redirect(url_for("collector.tricycle_record",
@@ -209,20 +258,45 @@ def tricycle_record(property_id):
         units=collection_service.UNITS,
         reasons=collection_service.NOT_COLLECTED_REASONS,
         today_row=schedule_service.for_date(),
+        form_date=timeutil.today_str(),
         **_shell("tricycle"),
     )
+
+
+def _is_replay() -> bool:
+    """A record sent by the offline queue rather than by the form itself."""
+    return request.headers.get("X-Offline-Replay") == "1"
+
+
+def _replay_refused(exc: ValidationError, label: str):
+    """
+    Refuse a replayed record with a real error status and the reason.
+
+    A normal submit is refused with a flash and a redirect back to the form.
+    The offline queue follows that redirect, sees a 200 and counts the entry
+    as sent -- so a refusal vanished, and the collector was told it had been
+    saved. A 409 is what the queue treats as "rejected on its merits": it
+    stops retrying and shows the collector this message instead.
+    """
+    return jsonify({"ok": False, "label": label,
+                    "message": " ".join(exc.errors.values())}), 409
 
 
 @collector_bp.route("/tricycle/history")
 @role_required("tricycle_collector")
 def tricycle_history():
     date = request.args.get("date") or ""
+    assignment = _my_assignment()
+    barangay_id = (assignment or {}).get("barangay_id")
     return render_template(
         "tricycle-collector/history.html",
         page_title="History",
         rows=collection_service.history_for_collector(
             current_user()["id"], date=date or None,
-            search=request.args.get("search", "")),
+            search=request.args.get("search", ""),
+            barangay_id=barangay_id),
+        assignment=assignment,
+        barangay=property_service.barangay_name(barangay_id) if barangay_id else None,
         selected_date=date,
         search=request.args.get("search", ""),
         **_shell("tricycle"),
@@ -335,11 +409,15 @@ def truck_route():
     user = current_user()
     assignment = mrf_service.assignment_for(user["id"])
     cards = mrf_service.cards_for_operator(user["id"])
+    # Carry-over stops are a list of their own: an earlier day's load, on the
+    # date the admin arranged, never folded into today's regular stops.
+    carry_cards = mrf_service.carry_over_cards_for_operator(user["id"])
 
     return render_template(
         "truck-collector/route.html",
         page_title="MRF",
         cards=cards,
+        carry_cards=carry_cards,
         assignment=assignment,
         load=mrf_service.running_load(user["id"]),
         today_row=schedule_service.for_date(),
@@ -362,33 +440,51 @@ def truck_record(barangay_id):
     if not assignment:
         abort(403, description="You do not have an active truck assignment.")
 
-    # Scope check: the MRF must be on this truck's route, or a carry-over
-    # reassigned to it. Otherwise any operator could record against any
-    # barangay by editing the URL.
-    from services import carryover_service
-    allowed = set(assignment.get("covered_mrfs") or [])
-    allowed |= {r["barangay_id"] for r in
-                carryover_service.pending_for_truck(assignment.get("truck_code"))}
-    if barangay_id not in allowed:
-        abort(403, description="That MRF is outside your assigned route.")
+    # Which stop this is: the day's regular stop, or a carry-over stop the
+    # admin arranged for today (?carry_over=<id>, or the form field on POST).
+    carry_over_id = (request.form.get("carry_over_id")
+                     or request.args.get("carry_over") or None)
 
-    card = mrf_service.mrf_card(barangay_id)
+    # Scope check: a regular stop must be on this truck's route; a carry-over
+    # stop must be one arranged for this truck today, or one it already
+    # recorded today. Otherwise any operator could record against any barangay
+    # by editing the URL.
+    if carry_over_id:
+        card = next((c for c in mrf_service.carry_over_cards_for_operator(user["id"])
+                     if c["carry_over_id"] == carry_over_id
+                     and c["barangay_id"] == barangay_id), None)
+        if not card:
+            abort(403, description="That carry-over is not arranged for your truck today.")
+    else:
+        if barangay_id not in set(assignment.get("covered_mrfs") or []):
+            abort(403, description="That MRF is outside your assigned route.")
+        card = mrf_service.mrf_card(barangay_id)
 
     if request.method == "POST":
         try:
-            saved = mrf_service.save_pickup(request.form, barangay_id, user)
+            saved = mrf_service.save_pickup(request.form, barangay_id, user,
+                                            carry_over_id=carry_over_id)
         except ValidationError as exc:
             for message in exc.errors.values():
                 flash(message, "danger")
+            if carry_over_id:
+                return redirect(url_for("collector.truck_record",
+                                        barangay_id=barangay_id,
+                                        carry_over=carry_over_id))
             return redirect(url_for("collector.truck_record", barangay_id=barangay_id))
 
         # Phase 7 emits mrf_pickup_saved (and carry_over_created) here.
         if saved["status"] == mrf_service.NOT_COLLECTED:
-            flash(f"{card['barangay']} MRF marked not collected. A carry-over "
-                  f"has been opened for the City Hall Admin.", "warning")
+            flash(f"{card['barangay']} MRF marked not collected. "
+                  + ("The carry-over goes back to the City Hall Admin to arrange again."
+                     if carry_over_id else
+                     "A carry-over has been opened for the City Hall Admin."),
+                  "warning")
         else:
-            flash(f"{card['barangay']} MRF collected. "
-                  f"{saved['load']['total']} added to your load.", "success")
+            flash(f"{card['barangay']} MRF "
+                  + ("carry-over " if carry_over_id else "")
+                  + f"collected. {saved['load']['total']} added to your load.",
+                  "success")
         return redirect(url_for("collector.truck_route"))
 
     return render_template(

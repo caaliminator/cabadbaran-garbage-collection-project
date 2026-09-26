@@ -49,7 +49,7 @@
     {% endwith %}
 
     {# ---- Recent collection log --------------------------------------- #}
-    <section class="card">
+    <section class="card" data-table-controller="brgyRecent">
       <div class="card__head">
         <h2 class="card__title">Recent Collection Log</h2>
         <a class="card__link" href="{{ url_for('brgy.collections') }}">
@@ -58,7 +58,7 @@
       </div>
 
       <div class="table-wrap">
-        <table class="table">
+        <table class="table" id="brgyRecent">
           <caption class="sr-only">Today's collection entries in this barangay</caption>
           <thead>
             <tr>

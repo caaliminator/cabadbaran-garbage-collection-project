@@ -17,13 +17,38 @@
   <div class="stack">
     <section class="card">
       <div class="card__head">
-        <h2 class="card__title">History Records</h2>
-        <span class="text-xs muted">Summary only — one entry per day</span>
+        <div>
+          <h2 class="card__title">History Records</h2>
+          <p class="text-xs muted">
+            Click a day to report on it · Shift-click another to cover the range between
+          </p>
+        </div>
+        {# A GET form, so the page size is part of the URL and survives a
+           refresh. Changing it goes back to page 1. #}
+        <form method="get" class="history-size">
+          <label class="text-xs muted" for="history-per">Show</label>
+          <select class="field__select field__select--sm" id="history-per" name="per"
+                  data-autosubmit>
+            {% for size in history_page.sizes %}
+              <option value="{{ size }}" {% if size == history_page.per %}selected{% endif %}>
+                {{ size }} days
+              </option>
+            {% endfor %}
+          </select>
+          <noscript><button type="submit" class="btn btn--secondary btn--sm">Apply</button></noscript>
+        </form>
       </div>
 
-      <div class="card__body card__body--flush">
+      {# Each day is a button that fills the report form's dates -- the card
+         already says which day, so retyping it into two date pickers was the
+         slow part. The divider between days is the stronger history-list one:
+         with every card shaped alike, a faint line let neighbouring days
+         blur into one. #}
+      <div class="card__body card__body--flush history-list" data-report-days>
         {% for day in feed %}
-          <article class="entry">
+          <article class="entry entry--pickable" role="button" tabindex="0"
+                   data-report-day="{{ day.date }}"
+                   aria-label="Use {{ day.date_display }} as the report's date range">
             <div style="min-width:0">
               <h3 class="entry__title">
                 {{ day.label }} — {{ day.date_display }}
@@ -68,6 +93,13 @@
                   {{ day.carry_overs_opened }} carry-over{{ '' if day.carry_overs_opened == 1 else 's' }}
                 </span>
               {% endif %}
+              {# The day in full. Clicking the card still fills the report
+                 dates; this link is its own action and opens the day page. #}
+              <a class="btn btn--secondary btn--sm"
+                 href="{{ url_for('city.history_day', day=day.date) }}"
+                 aria-label="View the details of {{ day.date_display }}">
+                {{ icon('eye', 'icon--sm') }} View details
+              </a>
             </div>
           </article>
         {% else %}
@@ -76,6 +108,34 @@
       </div>
 
       <div class="card__foot">
+        <span class="text-xs muted">
+          Days {{ history_page.first }}–{{ history_page.last }} of {{ history_page.total }}
+          · Page {{ history_page.page }} of {{ history_page.pages }}
+        </span>
+        <nav class="pager" aria-label="History pages">
+          {% if history_page.page > 1 %}
+            <a class="btn btn--secondary btn--sm"
+               href="{{ url_for('city.reports', per=history_page.per, page=history_page.page - 1) }}">
+              {{ icon('chevron-left', 'icon--sm') }} Newer
+            </a>
+          {% else %}
+            <span class="btn btn--secondary btn--sm" aria-disabled="true">
+              {{ icon('chevron-left', 'icon--sm') }} Newer
+            </span>
+          {% endif %}
+          {% if history_page.page < history_page.pages %}
+            <a class="btn btn--secondary btn--sm"
+               href="{{ url_for('city.reports', per=history_page.per, page=history_page.page + 1) }}">
+              Older {{ icon('chevron-right', 'icon--sm') }}
+            </a>
+          {% else %}
+            <span class="btn btn--secondary btn--sm" aria-disabled="true">
+              Older {{ icon('chevron-right', 'icon--sm') }}
+            </span>
+          {% endif %}
+        </nav>
+      </div>
+      <div class="card__foot" style="border-block-start:0;padding-block-start:0">
         <span class="text-xs muted">
           {{ icon('info', 'icon--sm') }}
           A day is frozen once it closes, so figures already reported cannot change.
@@ -89,8 +149,12 @@
     <section class="card">
       <div class="card__head"><h2 class="card__title">Generate Report</h2></div>
 
-      <form class="card__body form" method="post" data-validate novalidate>
+      <form class="card__body form" method="post" data-validate novalidate
+            id="report-form">
         {{ csrf_field() }}
+        {# Keeps the history panel on the page the admin was reading. #}
+        <input type="hidden" name="per" value="{{ history_page.per }}">
+        <input type="hidden" name="page" value="{{ history_page.page }}">
 
         <div class="field">
           <label class="field__label" for="report_type">
@@ -196,8 +260,9 @@
         </div>
 
         {% if generated.rows %}
+          <div data-table-controller="reportRows">
           <div class="table-wrap">
-            <table class="table">
+            <table class="table" id="reportRows">
               <caption class="sr-only">{{ generated.title }} rows</caption>
               <thead>
                 <tr>{% for c in generated.columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr>
@@ -212,6 +277,7 @@
                 {% endfor %}
               </tbody>
             </table>
+          </div>
           </div>
           {% if generated.rows|length > 50 %}
             <div class="card__foot">
@@ -232,4 +298,8 @@
   </div>
 </section>
 
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ asset('js/report-history.js') }}" defer></script>
 {% endblock %}
