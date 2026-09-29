@@ -32,9 +32,8 @@ CARRY_OVER_CREATED = "carry_over_created"
 PUBLIC_REPORT = "public_report"
 DELIVERY_COMPLETED = "delivery_completed"
 SCHEDULE_UPDATED = "schedule_updated"
-# The barangay's own MRF, as its tricycle collectors and admin need to hear
-# about it: the truck came and took the load, or a missed load now has a
-# truck and a day.
+# The barangay's own MRF, as its admin needs to hear about it: the truck came
+# and took the load, or a missed load now has a truck and a day.
 MRF_COLLECTED = "mrf_collected"
 CARRY_OVER_SCHEDULED = "carry_over_scheduled"
 
@@ -85,27 +84,20 @@ ICONS = {
 
 LINKS: dict[str, dict[str, str]] = {
     TRUCK_APPROACHING:   {"city_admin": "city.tracking",
-                          "barangay_admin": "brgy.tracking",
-                          "truck_collector": "collector.truck_route"},
+                          "barangay_admin": "brgy.tracking"},
     ARRIVAL_REMINDER:    {"city_admin": "city.mrf",
-                          "barangay_admin": "brgy.tracking",
-                          "truck_collector": "collector.truck_route",
-                          "tricycle_collector": "collector.tricycle_route"},
+                          "barangay_admin": "brgy.tracking"},
     UNAVAILABLE_REQUEST: {"city_admin": "city.unavailability",
                           "tricycle_collector": "collector.tricycle_unavailable",
                           "truck_collector": "collector.truck_unavailable"},
     ASSIGNMENT_CHANGED:  {"tricycle_collector": "collector.tricycle_route",
                           "truck_collector": "collector.truck_route"},
-    # The tricycle route page carries a "Your MRF today" card, which is what
-    # answers every alert about the barangay's MRF; the barangay dashboard has
-    # the same card for the admin.
+    # The barangay dashboard carries the MRF card that answers every alert
+    # about the barangay's MRF.
     CARRY_OVER_CREATED:  {"city_admin": "city.carry_over",
-                          "barangay_admin": "brgy.collections",
-                          "tricycle_collector": "collector.tricycle_route"},
-    MRF_COLLECTED:       {"barangay_admin": "brgy.dashboard",
-                          "tricycle_collector": "collector.tricycle_route"},
-    CARRY_OVER_SCHEDULED: {"barangay_admin": "brgy.dashboard",
-                           "tricycle_collector": "collector.tricycle_route"},
+                          "barangay_admin": "brgy.collections"},
+    MRF_COLLECTED:       {"barangay_admin": "brgy.dashboard"},
+    CARRY_OVER_SCHEDULED: {"barangay_admin": "brgy.dashboard"},
     PUBLIC_REPORT:       {"city_admin": "city.resident_reports",
                           "barangay_admin": "brgy.reports",
                           # The report names a household on this round, so the
@@ -120,6 +112,33 @@ LINKS: dict[str, dict[str, str]] = {
                           "tricycle_collector": "collector.tricycle_route",
                           "truck_collector": "collector.truck_route"},
 }
+
+# Alert types a role never sees, even when addressed to a room it is in.
+#
+# The MRF alerts -- the truck is coming, is approaching, has collected, missed,
+# or has been rescheduled -- are for the barangay whose MRF it is: they go to
+# that barangay's room alone, and its admin is who they are for. Two other
+# roles share that room. A tricycle collector's round ends at the household,
+# and the truck collector is the one doing the arriving and the collecting, so
+# telling them is noise. Neither sees these -- not in the bell, not as a push.
+# (A truck's own new stops still reach it, as ASSIGNMENT_CHANGED to its user
+# room.)
+MRF_ALERTS = frozenset({TRUCK_APPROACHING, ARRIVAL_REMINDER, MRF_COLLECTED,
+                        CARRY_OVER_CREATED, CARRY_OVER_SCHEDULED})
+HIDDEN_FROM: dict[str, frozenset[str]] = {
+    "tricycle_collector": MRF_ALERTS,
+    "truck_collector": MRF_ALERTS,
+}
+
+
+def hidden_roles(kind: str) -> list[str]:
+    """The roles that should never see an alert of this type."""
+    return sorted(role for role, kinds in HIDDEN_FROM.items() if kind in kinds)
+
+
+def visible_to(row: dict, role: str | None) -> bool:
+    return row.get("type") not in HIDDEN_FROM.get(role or "", frozenset())
+
 
 # Pages that show one day at a time. Carrying the notification's own date means
 # an alert read the next morning opens the day it happened rather than today's
@@ -199,7 +218,7 @@ def for_user(user: dict | None, limit: int = 20,
 
     rows = []
     for row in storage.read("notifications"):
-        if row.get("audience") not in tags:
+        if row.get("audience") not in tags or not visible_to(row, role):
             continue
         is_read = viewer in (row.get("read_by") or [])
         if unread_only and is_read:
@@ -236,7 +255,8 @@ def open_for(notification_id: str, user: dict) -> tuple[str, dict] | None:
     nothing read and goes nowhere.
     """
     row = storage.get("notifications", notification_id)
-    if not row or row.get("audience") not in set(audiences_for(user)):
+    if (not row or row.get("audience") not in set(audiences_for(user))
+            or not visible_to(row, user.get("role"))):
         return None
     mark_read(notification_id, user["id"])
     return link_for(row, user.get("role"))

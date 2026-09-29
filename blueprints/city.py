@@ -601,6 +601,14 @@ def _mrf_filters() -> dict:
 @city_bp.route("/mrf")
 @role_required("city_admin")
 def mrf():
+    # A read-only page that builds 31 MRF cards, each filtering the whole
+    # collections file: parse each file once for the page instead of once
+    # per card (storage.read_cache).
+    with storage.read_cache():
+        return _mrf_page()
+
+
+def _mrf_page():
     date = request.args.get("date") or timeutil.today_str()
     counts = mrf_service.city_counts(date)
     located = geo_service.mrf_locations()["meta"]

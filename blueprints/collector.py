@@ -151,47 +151,8 @@ def tricycle_route():
         counts=collection_service.counts(properties),
         totals=collection_service.totals(entries),
         today_row=schedule_service.for_date(),
-        mrf=_mrf_today(assignment),
         **_shell("tricycle"),
     )
-
-
-def _mrf_today(assignment):
-    """
-    The collector's barangay MRF as they need to see it: whether the truck
-    has come for today's load, and whether any missed load is still owed and
-    when it will be taken. This is the page every MRF alert links to.
-    """
-    from services import carryover_service
-
-    barangay_id = (assignment or {}).get("barangay_id")
-    if not barangay_id:
-        return None
-    card = mrf_service.mrf_card(barangay_id)
-    pickup = card.get("entry") or {}
-    stamp = timeutil.parse_stamp(pickup.get("timestamp"))
-
-    owed = []
-    for row in storage.find("carry_overs", barangay_id=barangay_id):
-        if not carryover_service.is_open(row):
-            continue
-        missed_on = row.get("batch_date") or row.get("first_missed_date")
-        owed.append({
-            "missed": missed_on or "",
-            "missed_display": timeutil.display_date(missed_on),
-            "arranged": carryover_service.stage_of(row) == carryover_service.PENDING,
-            "truck": row.get("current_truck"),
-            "date_display": timeutil.display_date(row.get("reschedule_date"))
-                            if row.get("reschedule_date") else "",
-        })
-    owed.sort(key=lambda r: r["missed"])
-
-    return {
-        **card,
-        "truck": pickup.get("truck_code"),
-        "time_display": timeutil.display_time(stamp) if stamp else "",
-        "owed": owed,
-    }
 
 
 @collector_bp.route("/tricycle/list")
@@ -420,6 +381,10 @@ def truck_route():
         carry_cards=carry_cards,
         assignment=assignment,
         load=mrf_service.running_load(user["id"]),
+        # Deliver to Landfill unlocks once every stop is recorded.
+        route=mrf_service.route_progress(user["id"], stops=cards + carry_cards),
+        # Today's only: the card starts fresh tomorrow, like the stop list.
+        delivered=mrf_service.deliveries_for_operator(user["id"]),
         today_row=schedule_service.for_date(),
         counts={
             "total": len(cards),

@@ -757,6 +757,18 @@
         setInterval(tick, 30000);
       });
 
+      // A form with no capture button still records where it was sent from
+      // -- Deliver to Landfill is one: its hidden field follows the page's
+      // GPS watcher (position.js) and holds the latest fix.
+      const automatic = $$('[data-geo-input]').filter(
+        (input) => !$('[data-geo-capture]', input.closest('.card') || document));
+      if (automatic.length && window.GCTSPosition && window.GCTSPosition.supported) {
+        window.GCTSPosition.watch((pos) => {
+          const value = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+          automatic.forEach((input) => { input.value = value; });
+        });
+      }
+
       $$('[data-geo-capture]').forEach((btn) => {
         const scope = btn.closest('.card') || document;
         const output = $('[data-geo-output]', scope);
@@ -847,7 +859,6 @@
      ====================================================================== */
 
   const Duty = {
-    watchId: null,
     lastSent: 0,
 
     init() {
@@ -858,7 +869,7 @@
       const endpoint = card.dataset.dutyEndpoint;
       const intervalMs = (Number(card.dataset.dutyInterval) || 8) * 1000;
 
-      if (!('geolocation' in navigator)) {
+      if (!window.GCTSPosition || !window.GCTSPosition.supported) {
         if (status) {
           status.textContent =
             'This device cannot share location, so you will not appear on the live map.';
@@ -866,7 +877,8 @@
         return;
       }
 
-      this.watchId = navigator.geolocation.watchPosition(
+      // The page's one GPS watcher (position.js), shared with the map.
+      window.GCTSPosition.watch(
         (pos) => {
           const now = Date.now();
           if (now - this.lastSent < intervalMs) return;
@@ -900,13 +912,7 @@
             3: 'Location request timed out.',
           };
           if (status) status.textContent = reasons[err.code] || 'Could not get your location.';
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-      );
-
-      window.addEventListener('pagehide', () => {
-        if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
-      });
+        });
     },
   };
 

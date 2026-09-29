@@ -163,22 +163,36 @@ load = mrf_service.running_load(OP["id"])
 ok("a second MRF adds to the running load",
    load["mrf_count"] == 2 and load["sacks"] == expected_sacks + 6)
 
+_progress = mrf_service.route_progress(OP["id"])
+ok("the route is not finished while an MRF is still pending",
+   not _progress["complete"] and _progress["pending"] == 1 and _progress["total"] == 3)
+fails("delivering before every MRF on the route is recorded is refused",
+      lambda: mrf_service.deliver(OP), "form", "Finish your route")
+ok("so nothing was delivered", storage.count("deliveries") == 0
+   and mrf_service.running_load(OP["id"])["mrf_count"] == 2)
+
+p5 = household("Household E", B3, "Purok 1")
+storage.update("properties", p5["id"], {"barangay_id": B3})
+collect(p5, 3, 0)
+mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B3, OP)
+ok("with every MRF recorded the route is finished",
+   mrf_service.route_progress(OP["id"])["complete"])
 delivery = mrf_service.deliver(OP)
-ok("delivery records the whole load", delivery["load"]["sacks"] == expected_sacks + 6)
-ok("delivery lists the MRFs included", len(delivery["mrfs_included"]) == 2)
+ok("delivery records the whole load", delivery["load"]["sacks"] == expected_sacks + 6 + 3)
+ok("delivery lists the MRFs included", len(delivery["mrfs_included"]) == 3)
+ok("delivery names the landfill", delivery["landfill"] == Config.LANDFILL_NAME)
 after = mrf_service.running_load(OP["id"])
 ok("running load resets to zero after delivering",
    after["empty"] and after["mrf_count"] == 0)
 fails("delivering an empty truck is refused",
       lambda: mrf_service.deliver(OP), "form", "no collected load")
-
-collect(household("Household E"), 3, 0)
-mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B3, OP)
-second = mrf_service.running_load(OP["id"])
-ok("a second trip starts clean rather than double-counting",
-   second["mrf_count"] == 1)
-mrf_service.deliver(OP)
-ok("two separate deliveries recorded", storage.count("deliveries") == 2)
+_shown = mrf_service.deliveries_for_operator(OP["id"])
+ok("the truck page lists today's delivery with its date and time",
+   len(_shown) == 1 and _shown[0]["date_display"] and _shown[0]["time_display"])
+_tomorrow = timeutil.date_str(timeutil.today() + timedelta(days=1))
+ok("tomorrow starts fresh: no delivery, the whole route pending",
+   mrf_service.deliveries_for_operator(OP["id"], _tomorrow) == []
+   and mrf_service.route_progress(OP["id"], _tomorrow)["pending"] == 3)
 
 print("\n[5] carry-over opens on a missed pickup")
 # Start this section from a clean slate: earlier sections delivered B1.
@@ -281,9 +295,12 @@ from services import notification_service as _ns
 ok("City Hall is told it has to arrange it again",
    any(n["title"] == "Carry-over missed again"
        for n in _ns.for_user(storage.get("users", ADMIN))))
+_brgy_admin = {"id": "p4-badmin", "role": "barangay_admin", "barangay_id": B1}
 ok("and so is the barangay whose MRF it is",
    any(n["title"] == "Rescheduled pickup missed"
-       for n in _ns.for_user(COL)))
+       for n in _ns.for_user(_brgy_admin)))
+ok("but not its tricycle collector -- MRF alerts are the barangay admin's",
+   not any(n["title"] == "Rescheduled pickup missed" for n in _ns.for_user(COL)))
 
 carryover_service.reschedule(co["id"], TODAY, ADMIN)
 closing = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP2,
@@ -465,6 +482,8 @@ fails("another truck cannot overwrite today's pickup",
                                             "reason": "Other"}), B1, OP2),
       "form", "another truck")
 p = storage.find_one("mrf_pickups", barangay_id=B1)
+for _rest in (B2, B3):     # a truck delivers only once its route is finished
+    mrf_service.save_pickup(Form({"status": "Collected from MRF"}), _rest, OP)
 mrf_service.deliver(OP)
 fails("a delivered pickup can no longer be changed",
       lambda: mrf_service.save_pickup(Form({"status": "Not Collected",

@@ -1823,7 +1823,7 @@ body.is-notice-focused { overflow: hidden; }
 /* ---- Barangay boundaries ----
    There are none. Barangays were drawn first as coloured fills and then as
    outlines; both buried the basemap the map is actually navigated by, and
-   neither told a viewer anything the vehicle pins and the MRF dots do not.
+   neither told a viewer anything the vehicle pins and the MRF pins do not.
    map.js still loads the geometry, but only to frame the view on it -- no
    polygon reaches the map, so there is nothing here to style. */
 
@@ -1832,6 +1832,68 @@ body.is-notice-focused { overflow: hidden; }
 .map-hotspot--low    { fill: #eab308; stroke: #ca8a04; }
 .map-hotspot--medium { fill: #f97316; stroke: #ea580c; }
 .map-hotspot--high   { fill: #dc2626; stroke: #b91c1c; }
+
+/* ---- Truck: landfill delivery ----
+   Why Deliver to Landfill is locked, under the disabled button; and, once
+   delivered, where and when in place of the button. */
+.deliver-locked {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+.deliver-locked .icon { flex: none; margin-top: 1px; }
+.delivered {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--tone-success-bg);
+}
+.delivered + .delivered { margin-top: var(--sp-2); }
+.delivered__title {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  margin: 0 0 var(--sp-2);
+  font-weight: 650;
+  color: var(--tone-success-fg);
+}
+
+/* ---- MRF pins ----
+   A square badge where vehicles are round pills, and one teal for every MRF:
+   a facility does not move and does not need telling apart by colour. The
+   dashed border marks a position approximated from the barangay centre. */
+.map-mrf {
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+}
+.map-mrf__body {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+  transform: translate(-50%, -50%);
+}
+.map-mrf--approx .map-mrf__body { border-style: dashed; opacity: .85; }
+.map-mrf__glyph {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.map__legend-mrf { display: inline-flex; color: #0f766e; }
 
 /* ---- Vehicle pins ----
    A glyph for what is driving, then the plate. The shape is read at a glance

@@ -102,6 +102,9 @@ class Config:
     TOTAL_BARANGAYS = 31
     # Hard ceiling on registered truck units for the whole city.
     MAX_TRUCKS = 8
+    # Where the trucks deliver, as the truck page names it after a delivery.
+    # The position shown beside it is the phone's GPS when Deliver was tapped.
+    LANDFILL_NAME = "City Landfill"
     # Zone colour groups: (first_number, last_number, key, label).
     # Group membership is derived from a barangay's number, never from
     # coordinates, so it stays correct before the real boundaries arrive.

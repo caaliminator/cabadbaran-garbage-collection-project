@@ -220,10 +220,15 @@
     /* ---- Notifications -------------------------------------------------- */
 
     onNotification(n) {
+      // Addressed to a room this viewer is in, but not meant for their role --
+      // the server leaves it out of their bell, so the push must not add it.
+      const list = $('[data-notification-list]');
+      const role = list ? list.dataset.viewerRole || '' : '';
+      if (Array.isArray(n.hidden_roles) && n.hidden_roles.indexOf(role) !== -1) return;
+
       const badge = $('[data-unread-count]');
       if (badge) this.setBadge((Number(badge.textContent) || 0) + 1);
 
-      const list = $('[data-notification-list]');
       if (list) list.prepend(this.buildRow(list, n));
 
       // On a phone the alert takes focus; on a desktop it stays a toast.
@@ -317,14 +322,14 @@
     wireDutyStream() {
       const card = $('[data-duty-card]');
       if (!card || card.dataset.dutyState !== 'on') return;
-      if (!('geolocation' in navigator)) return;
+      if (!window.GCTSPosition || !window.GCTSPosition.supported) return;
 
       const intervalMs = (Number(card.dataset.dutyInterval) || 8) * 1000;
       let lastSent = 0;
 
       // The socket carries positions while it is up; app.js keeps POSTing as
       // the fallback, and the server treats both the same way.
-      navigator.geolocation.watchPosition(
+      window.GCTSPosition.watch(
         (pos) => {
           if (!this.connected) return;
           const now = Date.now();
@@ -335,10 +340,7 @@
             lng: pos.coords.longitude,
             accuracy: pos.coords.accuracy,
           });
-        },
-        () => {},
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-      );
+        });
     },
 
     /* ---- Toast ---------------------------------------------------------- */

@@ -6,6 +6,7 @@
 
        /api/geo/config      centre, zoom, tiles
        /api/geo/barangays   barangay boundary polygons
+       /api/geo/mrfs        one MRF per barangay
        /api/geo/hotspots    the optional hotspot overlay
        /api/live/vehicles   on-duty tricycles and trucks
 
@@ -18,15 +19,13 @@
    itself on -- the city on open, one barangay on a scoped page -- but it is
    never drawn, so the basemap underneath is read directly.
 
-   Nor are the MRFs. This map answers one question -- where is the collector
-   right now -- and it answers it for a resident waiting at their gate as much
-   as for the city. A collector roams their barangay; the facility they end up
-   at is not what anyone is watching for, and 31 fixed dots only crowded the
-   one marker that moves. The MRF worklist lives on the MRF page, where it can
-   carry the status a dot never could.
+   The MRFs are drawn, and follow the barangay filter: with a barangay chosen
+   (or a page locked to one) only that barangay's MRF shows, so a resident
+   sees where their own waste goes. The MRF worklist, with its pickup status,
+   still lives on the MRF page.
 
-   Layer order matters: hotspots sit underneath, live vehicles on top -- so
-   switching the hotspot layer on never obscures a moving truck.
+   Layer order matters: hotspots sit underneath, MRFs above them, live
+   vehicles on top -- so no overlay ever obscures a moving truck.
    ========================================================================== */
 
 (function () {
@@ -72,16 +71,20 @@
       const baseLayers = this.basemaps(config, map);
 
       const hotspotLayer = L.layerGroup();
+      const mrfLayer = L.layerGroup().addTo(map);
       const vehicleLayer = L.layerGroup().addTo(map);
 
       const state = {
-        node, map, hotspotLayer, vehicleLayer,
+        node, map, hotspotLayer, mrfLayer, vehicleLayer,
         config,
         filter: node.dataset.mapFilter || 'all',
         barangay: node.dataset.mapBarangay || '',
         scope: node.dataset.mapScope || '',
         locateZoom: Number(node.dataset.mapLocate) || 0,
         followVehicle: node.dataset.mapFollow || '',
+        // A fixed set of MRFs this map is about (a truck's route), on top of
+        // whatever barangay filter is chosen. Empty means every MRF.
+        mrfScope: (node.dataset.mapMrfs || '').split(',').filter(Boolean),
         markers: {},
       };
 
@@ -96,9 +99,16 @@
       if (state.followVehicle) this.followMe(state);
       else if (state.locateZoom) this.locate(state);
 
-      const control = L.control.layers(baseLayers, {
-        'Live vehicles': vehicleLayer,
-      }, { collapsed: true }).addTo(map);
+      // A page can leave the MRFs off altogether -- the tricycle collector's
+      // map, whose round ends at the household, not the facility.
+      const withMrfs = !('mapNoMrfs' in node.dataset);
+      const overlays = withMrfs ? { MRFs: mrfLayer } : {};
+      overlays['Live vehicles'] = vehicleLayer;
+      const control = L.control.layers(baseLayers, overlays,
+                                       { collapsed: true }).addTo(map);
+
+      if (withMrfs) await this.loadMrfs(state);
+      else map.removeLayer(mrfLayer);
 
       if (config.hotspot_layer_enabled) {
         control.addOverlay(hotspotLayer, 'Hotspots');
@@ -196,10 +206,14 @@
       if (data.meta.with_geometry > 0) {
         state.cityBounds = drawn.getBounds();
 
+        // Framed without animation. Leaflet silently ignores a setView made
+        // while a zoom animation is still running, and a collector's cached
+        // GPS fix arrives inside that quarter-second -- so an animated opening
+        // swallowed the zoom onto their own position.
         if (state.barangay && state.zoneLayers[state.barangay]) {
-          this.focusBarangay(state, state.barangay);
+          this.focusBarangay(state, state.barangay, { animate: false });
         } else if (state.cityBounds.isValid()) {
-          state.map.fitBounds(state.cityBounds, { padding: [16, 16] });
+          state.map.fitBounds(state.cityBounds, { padding: [16, 16], animate: false });
         }
 
         // Placeholder geometry no longer shows on the map, but it still
@@ -283,16 +297,17 @@
        browser hands over a new fix when the device actually moves, which on
        a phone in a pocket is far cheaper than asking on a timer. */
     followMe(state) {
-      if (!navigator.geolocation) {
+      if (!window.GCTSPosition || !window.GCTSPosition.supported) {
         this.note(state, 'This device cannot report its location.');
         return;
       }
 
       let marker = null;
       let halo = null;
-      let centred = false;
 
-      navigator.geolocation.watchPosition(
+      // The page's one GPS watcher (position.js), shared with the duty
+      // tracker -- a second watcher of its own could wait forever for a fix.
+      window.GCTSPosition.watch(
         (position) => {
           const { latitude: lat, longitude: lng, accuracy } = position.coords;
           const point = [lat, lng];
@@ -315,29 +330,36 @@
 
           // Snap to them once on the first fix; after that follow only while
           // they have not taken the map somewhere themselves.
-          if (!centred) {
-            state.map.setView(point, state.locateZoom || 16);
-            centred = true;
-          } else if (!state.userMoved) {
-            state.map.panTo(point);
-          }
+          state.gpsFix = true;
+          if (!state.centred) this.centreOnMe(state, point);
+          else if (!state.userMoved) state.map.panTo(point);
         },
         (error) => {
           this.note(state, error && error.code === 1
             ? 'Location is blocked for this site. The map cannot follow you '
               + 'until you allow it in your browser settings.'
             : 'Your location is unavailable right now.');
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+        });
+    },
+
+    /* The one zoom onto the collector: on their first GPS fix, or -- while
+       On Duty -- on the position the server last had for their vehicle,
+       whichever comes first. A cold GPS fix can take ten seconds; the
+       server's copy is usually seconds old and arrives with the first poll. */
+    centreOnMe(state, point) {
+      if (state.userMoved) return;
+      state.map.setView(point, state.locateZoom || 16, { animate: false });
+      state.centred = true;
     },
 
     /* Zoom to one barangay. With nothing drawn there is no shape to
        highlight and no neighbour to fade -- the view itself is what says
        which barangay is being looked at. */
-    focusBarangay(state, barangayId) {
+    focusBarangay(state, barangayId, options) {
       const target = (state.zoneLayers || {})[barangayId];
       if (target && target.getBounds) {
-        state.map.fitBounds(target.getBounds(), { padding: [40, 40], maxZoom: 15 });
+        state.map.fitBounds(target.getBounds(),
+                            { padding: [40, 40], maxZoom: 15, ...options });
       }
     },
 
@@ -370,6 +392,49 @@
           )
           .addTo(state.hotspotLayer);
       });
+    },
+
+    /* Fetch the MRFs once; the barangay filter only changes which are drawn,
+       so switching it needs no round trip. */
+    async loadMrfs(state) {
+      try {
+        const data = await fetch('/api/geo/mrfs').then((r) => r.json());
+        state.mrfs = (data.mrfs || []).filter((m) => m.located);
+      } catch (err) {
+        state.mrfs = [];   // the map still works without them
+      }
+      this.drawMrfs(state);
+    },
+
+    /* The MRFs in scope right now: the chosen barangay's alone, or every one
+       the page is about when none is chosen. */
+    drawMrfs(state) {
+      state.mrfLayer.clearLayers();
+
+      const shown = (state.mrfs || []).filter((m) =>
+        (!state.barangay || m.barangay_id === state.barangay)
+        && (!state.mrfScope.length || state.mrfScope.includes(m.barangay_id)));
+
+      shown.forEach((m) => {
+        L.marker([m.lat, m.lng], {
+          icon: this.mrfIcon(m),
+          // Below every vehicle, whatever their latitudes: a truck parked at
+          // its MRF has to stay the thing that is visible.
+          zIndexOffset: -1000,
+          title: m.name || 'MRF',
+        })
+          .bindPopup(
+            `<strong>${m.name || 'MRF'}</strong>` +
+            (m.barangay_name ? `<br>Barangay ${m.barangay_name}` : '') +
+            `<br><span class="text-xs muted">${m.surveyed
+              ? 'Surveyed location'
+              : 'Approximate: placed at the barangay centre'}</span>`
+          )
+          .addTo(state.mrfLayer);
+      });
+
+      const legend = state.node.querySelector('[data-legend="mrfs"]');
+      if (legend) legend.textContent = shown.length;
     },
 
     async drawVehicles(state) {
@@ -407,6 +472,12 @@
        teleporting rather than driving down a road. */
     placeVehicle(state, v) {
       if (v.lat == null || v.lng == null) return;
+
+      // A collector on duty is on the map as soon as the server knows where
+      // they are, even before this phone's GPS has answered.
+      if (state.followVehicle && v.vehicle === state.followVehicle && !state.centred) {
+        this.centreOnMe(state, [v.lat, v.lng]);
+      }
 
       const existing = state.markers[v.vehicle];
       if (existing) {
@@ -468,8 +539,9 @@
         this.placeVehicle(state, v);
 
         // A collector watching their own map rides along with the marker.
+        // This device's own GPS is fresher than its echo off the server.
         if (state.followVehicle && v.vehicle === state.followVehicle
-            && !state.userMoved) {
+            && !state.userMoved && !state.gpsFix) {
           state.map.setView([v.lat, v.lng], state.map.getZoom());
         }
       });
@@ -494,6 +566,24 @@
         + '<path d="M5.5 17.5 9 7h4l3 6M9 7H7m8 10.5h-6"/>',
       truck: '<path d="M1 3h13v13H1zM14 8h4l3 3v5h-7"/>'
         + '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/>',
+    },
+
+    /* The MRF pin: the recycle glyph from partials/icons.html in a square
+       badge, so it never reads as one of the round vehicle pills. An
+       approximated position is drawn dashed -- right barangay, not
+       necessarily the building. */
+    mrfIcon(m) {
+      return L.divIcon({
+        className: `map-mrf${m.surveyed ? '' : ' map-mrf--approx'}`,
+        html: '<span class="map-mrf__body">'
+          + '<svg class="map-mrf__glyph" viewBox="0 0 24 24" aria-hidden="true" '
+          + 'focusable="false">'
+          + '<path d="M7 19H4.5a2 2 0 0 1-1.7-3l2.3-3.9M10.5 4.6l1.9-3.2a2 2 0 0 1 3.4 0l2.2 3.8"/>'
+          + '<path d="m14 21 3.5-6H21a2 2 0 0 0 1.7-3l-1.6-2.8"/>'
+          + '<path d="m8 8-3 5 5 3M17 21l-3-3 3-3M4.8 12.6 8 7"/>'
+          + '</svg></span>',
+        iconSize: [null, null],
+      });
     },
 
     /* How many per-vehicle colours components.css defines. Kept in step with
@@ -622,6 +712,7 @@
           // from their own position -- let the map fit to it.
           state.userMoved = false;
           this.drawVehicles(state);
+          this.drawMrfs(state);
           if (state.config.hotspot_layer_enabled) this.drawHotspots(state);
           if (state.barangay) this.focusBarangay(state, state.barangay);
           else this.clearFocus(state);

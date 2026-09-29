@@ -30,6 +30,7 @@
     {% with map_title = 'My location',
             map_follow = user.vehicle or 'me',
             map_locate_zoom = 17,
+            show_mrfs = false,
             show_tabs = false,
             show_barangay_filter = false %}
       {% include 'partials/live_map.html' %}
@@ -60,43 +61,6 @@
       {% endif %}
     </div>
   </div>
-
-  {# ---- Your MRF today ----------------------------------------------------
-     Where every MRF alert lands. The collector fills this MRF all day, so
-     whether the truck has come for it -- and when a missed load will be
-     taken -- is the other half of their round.                           #}
-  {% if mrf %}
-    <div class="today-card">
-      <span class="today-card__icon" aria-hidden="true">{{ icon('recycle') }}</span>
-      <div style="min-width:0">
-        <p class="today-card__label">Your MRF Today</p>
-        <p class="today-card__value">
-          {% if mrf.status == 'Collected from MRF' %}Collected
-          {% elif mrf.status == 'Not Collected' %}Not collected
-          {% else %}Waiting for the truck{% endif %}
-        </p>
-        <p class="text-xs muted">
-          {% if mrf.status == 'Collected from MRF' %}
-            {{ mrf.truck }}{% if mrf.time_display %} at {{ mrf.time_display }}{% endif %} · {{ mrf.load.total }}
-          {% elif mrf.status == 'Not Collected' %}
-            {{ mrf.reason or 'Missed' }} · City Hall will reschedule it
-          {% else %}
-            {{ mrf.load.total if not mrf.load.empty else 'Nothing brought in yet' }} in {{ mrf.mrf_name }}
-          {% endif %}
-        </p>
-        {% for o in mrf.owed %}
-          <p class="text-xs" style="margin-top:var(--sp-1);display:flex;gap:var(--sp-1);align-items:flex-start">
-            {{ icon('repeat', 'icon--sm') }}
-            <span>
-              Missed load from {{ o.missed_display }}:
-              {% if o.arranged %}{{ o.truck }} on {{ o.date_display }}
-              {% else %}waiting for City Hall to arrange{% endif %}
-            </span>
-          </p>
-        {% endfor %}
-      </div>
-    </div>
-  {% endif %}
 </section>
 
 {% if not assignment %}

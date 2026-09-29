@@ -131,6 +131,9 @@ def notify(audience: str, kind: str, message: str, title: str = "",
         # against its own role to decide whether to draw the row as a link,
         # and the open route works out where it actually goes.
         "link_roles": sorted(notification_service.LINKS.get(record["type"], {})),
+        # A room can also hold a role this alert is not for (MRF alerts in a
+        # barangay room reach its tricycle collectors); the client drops it.
+        "hidden_roles": notification_service.hidden_roles(record["type"]),
     })
     return record
 

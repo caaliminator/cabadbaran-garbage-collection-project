@@ -215,6 +215,8 @@ ok("reassigning notifies the newly assigned operator",
 storage.write("notifications", [])
 fake.clear()
 mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP)
+# The route has to be finished before the truck can deliver.
+mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B2, OP)
 mrf_service.deliver(OP)
 ok("a delivery notifies the city admin",
    any(n["type"] == notification_service.DELIVERY_COMPLETED

@@ -86,6 +86,7 @@
   <div class="card__body card__body--flush" style="padding:var(--sp-3)">
     {% with map_title = 'My location',
             map_follow = user.vehicle or 'me',
+            map_mrfs = (assignment or {}).get('covered_mrfs') or [],
             map_locate_zoom = 17,
             show_tabs = false,
             show_barangay_filter = false %}
@@ -180,7 +181,11 @@
   {# ---- Running load + deliver ------------------------------------------
      This total comes from the barangay collection entries, not from anything
      the operator types. Delivering stamps the pickups, which is what clears
-     the running load so a second trip starts from zero.                    #}
+     the running load so a second trip starts from zero.
+
+     Deliver to Landfill stays locked until every stop on today's route is
+     recorded (mrf_service.route_progress); once delivered, the button gives
+     way to where and when. All of it is today's, so tomorrow starts fresh. #}
   <div class="stack">
     <div class="card">
       <div class="card__head"><h2 class="card__title">Overall Collected Load</h2></div>
@@ -205,20 +210,73 @@
             </div>
           </dl>
 
-          <form method="post" action="{{ url_for('collector.truck_deliver') }}"
-                style="margin-top:var(--sp-4)"
-                data-confirm-message="Deliver {{ load.total }} from {{ load.mrf_count }} MRF(s) to the landfill? This clears your running load.">
-            {{ csrf_field() }}
-            <input type="hidden" name="gps" data-geo-input value="">
-            <button type="submit" class="btn btn--primary btn--block btn--lg">
+          {% if route.complete %}
+            <form method="post" action="{{ url_for('collector.truck_deliver') }}"
+                  style="margin-top:var(--sp-4)"
+                  data-confirm-message="Deliver {{ load.total }} from {{ load.mrf_count }} MRF(s) to the landfill? This clears your running load.">
+              {{ csrf_field() }}
+              <input type="hidden" name="gps" data-geo-input value="">
+              <button type="submit" class="btn btn--primary btn--block btn--lg">
+                {{ icon('truck', 'icon--sm') }} Deliver to Landfill
+              </button>
+            </form>
+          {% else %}
+            <button type="button" class="btn btn--primary btn--block btn--lg"
+                    style="margin-top:var(--sp-4)" disabled aria-disabled="true"
+                    aria-describedby="deliver-locked">
               {{ icon('truck', 'icon--sm') }} Deliver to Landfill
             </button>
-          </form>
-        {% else %}
+            <p class="deliver-locked" id="deliver-locked">
+              {{ icon('clock', 'icon--sm') }}
+              <span>
+                Finish all {{ route.total }} stops on today's route first —
+                {{ route.pending }} still pending{% if route.pending_names %}:
+                {{ route.pending_names|join(', ') }}{% endif %}.
+              </span>
+            </p>
+          {% endif %}
+        {% elif not delivered %}
           {{ empty('Nothing on board',
                    'Collect from an MRF and its load will total up here, ready to deliver.',
                    'package') }}
         {% endif %}
+
+        {% for d in delivered %}
+          <div class="delivered">
+            <p class="delivered__title">
+              {{ icon('check-circle', 'icon--sm') }}
+              Delivered to {{ d.landfill }}
+            </p>
+            <dl class="dlist">
+              <div class="dlist__row">
+                <dt class="dlist__key">Date</dt>
+                <dd class="dlist__val">{{ d.date_display }}</dd>
+              </div>
+              <div class="dlist__row">
+                <dt class="dlist__key">Time</dt>
+                <dd class="dlist__val">{{ d.time_display or '—' }}</dd>
+              </div>
+              <div class="dlist__row">
+                <dt class="dlist__key">Location</dt>
+                <dd class="dlist__val">
+                  {% if d.gps %}
+                    <a href="{{ d.map_url }}" target="_blank" rel="noopener">
+                      {{ '%.5f'|format(d.gps.lat) }}, {{ '%.5f'|format(d.gps.lng) }}
+                    </a>
+                  {% else %}
+                    Not captured — location was off
+                  {% endif %}
+                </dd>
+              </div>
+              <div class="dlist__row">
+                <dt class="dlist__key">Load</dt>
+                <dd class="dlist__val">
+                  {{ (d.load or {}).total or '0' }} from {{ d.mrf_count }} MRF{{ '' if d.mrf_count == 1 else 's' }}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        {% endfor %}
       </div>
     </div>
 

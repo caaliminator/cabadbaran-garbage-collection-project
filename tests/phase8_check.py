@@ -78,9 +78,10 @@ collection_service.save_entry(Form({"status": "Collected", "qty_0": "10",
 collection_service.save_entry(Form({"status": "Collected", "qty_0": "5",
                                     "unit_0": "Sack"}), None, p2, COL)
 mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP)
-mrf_service.deliver(OP)
+# Recorded before delivering: a truck delivers only once its route is done.
 mrf_service.save_pickup(Form({"status": "Not Collected",
                               "reason": "Road inaccessible"}), B2, OP)
+mrf_service.deliver(OP)
 
 print("\n[1] report validation")
 fails("an unknown report type is refused",

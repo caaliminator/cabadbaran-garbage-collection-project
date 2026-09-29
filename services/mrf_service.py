@@ -33,6 +33,7 @@ rather than folded into it.
 Pickups written before `kind` existed read as regular ones.
 """
 
+from config import Config
 from services import (assignment_service, collection_service, schedule_service,
                       storage, timeutil)
 from services.validation import ValidationError, Validator
@@ -494,16 +495,76 @@ def running_load(operator_id: str, date=None) -> dict:
     }
 
 
+def route_progress(operator_id: str, date=None, stops=None) -> dict:
+    """
+    Whether the truck has finished its route for the day: every stop on it --
+    its assigned MRFs and any carry-over stop arranged for the day -- has been
+    recorded, Collected or Not Collected. A missed MRF counts as done: it
+    becomes a carry-over for City Hall, and the rest of the load must not be
+    stuck on the truck because of it.
+
+    Delivering to the landfill waits for this, so a truck cannot drive off
+    with half its route and leave the other MRFs Pending.
+
+    `stops` lets a caller that has already built the day's cards pass them in.
+    """
+    day = timeutil.date_str(date or timeutil.today())
+    if stops is None:
+        stops = (cards_for_operator(operator_id, day)
+                 + carry_over_cards_for_operator(operator_id, day))
+    pending = [c for c in stops if c.get("status") == PENDING]
+    return {
+        "total": len(stops),
+        "pending": len(pending),
+        "pending_names": [c.get("barangay") for c in pending],
+        "complete": bool(stops) and not pending,
+    }
+
+
+def deliveries_for_operator(operator_id: str, date=None) -> list[dict]:
+    """
+    The day's landfill deliveries by this operator, earliest first, shaped for
+    the truck page: where it was delivered, and when.
+    """
+    day = timeutil.date_str(date or timeutil.today())
+    rows = sorted(storage.find("deliveries", operator_id=operator_id, date=day),
+                  key=lambda d: d.get("timestamp") or "")
+    shaped = []
+    for row in rows:
+        stamp = timeutil.parse_stamp(row.get("timestamp"))
+        gps = row.get("gps") or None
+        shaped.append({
+            **row,
+            "landfill": row.get("landfill") or Config.LANDFILL_NAME,
+            "date_display": timeutil.display_date(row.get("date")),
+            "time_display": timeutil.display_time(stamp) if stamp else "",
+            "gps": gps,
+            "map_url": (f"https://www.openstreetmap.org/?mlat={gps['lat']}"
+                        f"&mlon={gps['lng']}#map=17/{gps['lat']}/{gps['lng']}"
+                        if gps else ""),
+            "mrf_count": len(row.get("mrfs_included") or []),
+        })
+    return shaped
+
+
 def deliver(operator: dict, gps=None, date=None) -> dict:
     """
     Record a landfill delivery for everything currently on the truck, then
-    clear the running load.
+    clear the running load. Only once the day's route is finished -- see
+    route_progress.
     """
     day = timeutil.date_str(date or timeutil.today())
     load = running_load(operator["id"], day)
 
     if load["empty"] and not load["pickup_ids"]:
         raise ValidationError({"form": "There is no collected load to deliver yet."})
+
+    progress = route_progress(operator["id"], day)
+    if not progress["complete"]:
+        raise ValidationError({"form": (
+            "Finish your route before delivering to the landfill: "
+            f"{progress['pending']} of {progress['total']} MRF(s) still pending "
+            f"({', '.join(n for n in progress['pending_names'] if n)}).")})
 
     assignment = assignment_for(operator["id"])
     names = {b["id"]: b["name"] for b in storage.read("barangays")}
@@ -518,6 +579,7 @@ def deliver(operator: dict, gps=None, date=None) -> dict:
         "pickup_ids": load["pickup_ids"],
         "load": {k: load[k] for k in ("lines", "sacks", "kilos", "total")},
         "schedule_day": timeutil.weekday_name(day),
+        "landfill": Config.LANDFILL_NAME,
         "gps": collection_service._parse_gps(gps),
     }, operator["id"])
 

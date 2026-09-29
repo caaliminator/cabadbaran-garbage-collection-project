@@ -66,6 +66,16 @@ def stamp_at(day, hour: int, minute: int = 0) -> str:
     return f"{timeutil.date_str(day)}T{hour:02d}:{minute:02d}:00+08:00"
 
 
+def not_after_now(stamp: str, minutes_back: int = 0) -> str:
+    """
+    A generated time, moved back to `minutes_back` before now if it would lie
+    in the future. Only ever bites on today: a truck page opened at 10 AM
+    must not say its MRFs were collected at 2 PM and delivered at 4.
+    """
+    latest = timeutil.now() - timedelta(minutes=minutes_back)
+    return min(stamp, latest.strftime("%Y-%m-%dT%H:%M:00+08:00"))
+
+
 def set_created(name: str, stamps: dict) -> None:
     """
     Give records the date they were really created, in one write.
@@ -98,19 +108,36 @@ def insert_many(name: str, records: list, actor) -> list:
 # its accounts.
 DEMO_PASSWORD = seed_password()
 
-# Barangays that get a full cast of properties and collectors. Ten is enough to
-# make every citywide figure look like a city rather than a test fixture, and
-# few enough that the generator stays quick on a JSON store.
-ACTIVE_BARANGAYS = 10
+# Barangays that get a full cast of properties and collectors: all of them,
+# so every account type has real data whichever barangay it logs in to.
+ACTIVE_BARANGAYS = Config.TOTAL_BARANGAYS
 
-# Truck routes: which barangay MRFs each truck covers. Four trucks over the
-# first ten barangays, matching the "4 trucks, 31 MRFs" shape of the spec.
+# Truck routes: which barangay MRFs each truck covers. All eight trucks, four
+# MRFs apiece, every barangay on exactly one route. TRK-01 keeps Poblacion 1
+# (16), where the brgy_admin and tri_collector logins live, so the demo's
+# truck_collector serves the same barangay the other demo logins see.
 TRUCK_ROUTES = {
-    "TRK-01": [1, 2, 3],
-    "TRK-02": [4, 5, 6],
-    "TRK-03": [7, 8],
-    "TRK-04": [9, 10],
+    "TRK-01": [1, 2, 3, 16],
+    "TRK-02": [4, 5, 6, 7],
+    "TRK-03": [8, 9, 10, 11],
+    "TRK-04": [12, 13, 14, 15],
+    "TRK-05": [17, 18, 19, 20],
+    "TRK-06": [21, 22, 23, 24],
+    "TRK-07": [25, 26, 27, 28],
+    "TRK-08": [29, 30, 31],
 }
+
+# How many of its MRFs each truck has already collected on the live day.
+TODAY_STOPS = 2
+
+# Planned MRF pickup times along a route, in order. Feeds the T-2h "the truck
+# will arrive" reminder.
+PICKUP_SLOTS = ["08:00", "09:30", "11:00", "13:30", "15:00"]
+
+# Further City Hall accounts, beside the seeded city_admin.
+CITY_STAFF = [
+    ("city_staff", "Rosalinda Amper"),
+]
 
 FIRST_NAMES = [
     "Nica", "Iliana", "Marites", "Joel", "Rowena", "Danilo", "Cristina",
@@ -136,13 +163,20 @@ REASONS = [
     "No one at home",
 ]
 
+# One per barangay, so no two collectors share a name.
 COLLECTOR_NAMES = [
     "Joel Abadilla", "Rowena Barrios", "Danilo Cagampang", "Cristina Dagohoy",
     "Rodel Enriquez", "Bernadette Fabian", "Arnel Gomez", "Lorna Hilario",
     "Edgar Ibarra", "Michelle Jalandoni", "Ramon Kalaw", "Grace Lozada",
+    "Nestor Macalisang", "Imelda Navarro", "Rogelio Olaivar", "Perla Quijano",
+    "Samuel Rosales", "Teresita Sumile", "Virgilio Tan", "Analyn Uy",
+    "Wilfredo Villamor", "Charito Ybañez", "Benjie Zamora", "Luzviminda Acedo",
+    "Reynaldo Bolo", "Evangeline Cortes", "Felix Dumanon", "Gemma Eleccion",
+    "Honorio Fuentes", "Josephine Galon", "Leonardo Hermoso",
 ]
 OPERATOR_NAMES = [
     "Alfredo Marasigan", "Divina Nazareno", "Teodoro Ochoa", "Jocelyn Padilla",
+    "Crisanto Quimbo", "Maricel Reyes", "Eduardo Sayson", "Norberto Tumulak",
 ]
 
 
@@ -225,7 +259,14 @@ def ensure_user(username: str, payload: dict) -> dict:
 def build_cast(rng: random.Random) -> dict:
     """Accounts and assignments for the active barangays. Idempotent."""
     barangays = {b["id"]: b for b in storage.find("barangays")}
-    cast = {"tricycles": [], "trucks": [], "barangay_admins": []}
+    cast = {"tricycles": [], "trucks": [], "barangay_admins": [], "city_admins": []}
+
+    for username, name in CITY_STAFF:
+        cast["city_admins"].append(ensure_user(username, {
+            "full_name": name,
+            "role": "city_admin",
+            "contact_number": f"09{rng.randint(100000000, 999999999)}",
+        }))
 
     for n in active_numbers():
         bid = barangay_id(n)
@@ -280,7 +321,7 @@ def build_cast(rng: random.Random) -> dict:
             covered += [barangay_id(n) for n in extra]
         if not covered:
             continue
-        planned = {b: t for b, t in zip(covered, ["09:00", "10:30", "13:00", "14:30"])}
+        planned = dict(zip(covered, PICKUP_SLOTS))
 
         # A truck that already has an operator -- seed.py --demo gives TRK-01
         # to the truck_collector login -- keeps that operator and takes the
@@ -314,8 +355,7 @@ def build_cast(rng: random.Random) -> dict:
                 "truck_code": truck,
                 "covered_mrfs": covered,
                 # Feeds the T-2h "the truck will arrive" reminder.
-                "planned_pickup_times": {b: t for b, t in
-                                         zip(covered, ["09:00", "10:30", "13:00"])},
+                "planned_pickup_times": planned,
                 "status": "Active",
                 "note": "",
                 "demo_generated": True,
@@ -546,8 +586,15 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
     stats = {"collected": 0, "missed": 0, "delivered": 0, "carried": 0}
     missed_today = 0
     MISSES_PER_DAY = misses
+    is_today = day == timeutil.today_str()
 
-    for operator in cast["trucks"]:
+    for index, operator in enumerate(cast["trucks"]):
+        # Today is mid-route, as it is for the tricycles: each truck has been
+        # to its first TODAY_STOPS MRFs and still has that load on board --
+        # which is what its Overall Collected Load card shows -- with the rest
+        # of its stops Pending. The last truck has finished early and already
+        # been to the landfill, so today's delivery count is not zero either.
+        finished = not is_today or index == len(cast["trucks"]) - 1
         assignment = storage.find_one("assignments_truck", operator_id=operator["id"])
         if not assignment:
             continue
@@ -568,7 +615,8 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
                     "operator_id": operator["id"],
                     "status": mrf_service.COLLECTED,
                     "gps": gps_near(rng, row["barangay_id"]),
-                    "timestamp": (_t := stamp_at(day, rng.randint(8, 10), rng.randint(0, 59))),
+                    "timestamp": (_t := not_after_now(
+                        stamp_at(day, rng.randint(8, 10), rng.randint(0, 59)), 15)),
                     "created_at": _t,
                     "reason": "", "note": "", "delivery_id": None,
                     "auto_missed": False, "demo_generated": True,
@@ -577,7 +625,13 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
                 picked.append(record)
                 stats["carried"] += 1
 
+        on_board = 0
+        truck_missed = False
         for bid in assignment.get("covered_mrfs", []):
+            # A missed stop does not count: the truck drives on until it has
+            # TODAY_STOPS loads on board, so no truck is empty by chance.
+            if not finished and on_board >= TODAY_STOPS:
+                break      # not reached yet today: left Pending
             if mrf_service.regular_pickup(bid, day):
                 continue
             card = mrf_service.mrf_card(bid, day)
@@ -587,7 +641,10 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
             # Today's misses are what the Carry-Over page's Missed Collection
             # tab shows, so today leans a little harder on them.
             chance = .5 if day == timeutil.today_str() else .35
-            miss = missed_today < MISSES_PER_DAY and rng.random() < chance
+            # At most one per truck, so the day's misses spread across the
+            # city instead of all landing on the first route.
+            miss = (missed_today < MISSES_PER_DAY and not truck_missed
+                    and rng.random() < chance)
             record = storage.insert("mrf_pickups", {
                 "barangay_id": bid,
                 "date": day,
@@ -601,7 +658,8 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
                 "operator_id": operator["id"],
                 "status": "Not Collected" if miss else "Collected from MRF",
                 "gps": gps_near(rng, bid),
-                "timestamp": (_t := stamp_at(day, rng.randint(9, 15), rng.randint(0, 59))),
+                "timestamp": (_t := not_after_now(
+                    stamp_at(day, rng.randint(9, 15), rng.randint(0, 59)), 10)),
                 "created_at": _t,
                 "reason": "MRF was locked / no attendant" if miss else "",
                 "note": "",
@@ -611,12 +669,13 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
             }, operator["id"])
 
             # Today's pickups raise the same alerts a live one would, so the
-            # barangay's tricycle collectors and admin open a bell that says
+            # barangay admin opens a bell that says
             # what the truck did. Past days stay quiet: a demo's bell full of
             # last week's news is not what a real morning looks like.
             live = day == timeutil.today_str()
             if miss:
                 missed_today += 1
+                truck_missed = True
                 stats["missed"] += 1
                 opened = carryover_service.open_for(record, card["load"],
                                                     actor=operator["id"])
@@ -624,19 +683,22 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
                     triggers.on_carry_over_created(opened, record)
             else:
                 stats["collected"] += 1
+                on_board += 1
                 picked.append(record)
                 if live:
                     triggers.on_mrf_collected(record)
 
-        # One landfill run per truck that actually picked anything up.
-        if picked:
+        # One landfill run per truck that actually picked anything up and
+        # has finished its route.
+        if picked and finished:
             load = mrf_service.running_load(operator["id"], day)
             if not load.get("empty"):
                 delivery = storage.insert("deliveries", {
                     "truck_code": assignment.get("truck_code"),
                     "operator_id": operator["id"],
                     "date": day,
-                    "timestamp": (_t := stamp_at(day, 16, rng.randint(0, 59))),
+                    "timestamp": (_t := not_after_now(stamp_at(day, 16, rng.randint(0, 59)), 2)),
+                    "landfill": Config.LANDFILL_NAME,
                     "created_at": _t,
                     "mrfs_included": [p["barangay_id"] for p in picked],
                     "source_schedule_day": picked[0].get("source_schedule_day"),
@@ -760,13 +822,14 @@ def resident_reports(rng: random.Random, day: str, count: int = 4) -> int:
     return made
 
 
-def put_collectors_on_duty(rng: random.Random, cast: dict, keep: int = 7) -> int:
+def put_collectors_on_duty(rng: random.Random, cast: dict) -> int:
     """
-    Park a handful of vehicles on the map, so Live Tracking is not an empty
-    frame. Positions are inside their own barangay.
+    Park vehicles on the map, so Live Tracking is not an empty frame: every
+    other tricycle, spread across the city, and half the trucks. Positions are
+    inside their own barangay.
     """
     on = 0
-    for collector in cast["tricycles"][:keep]:
+    for collector in cast["tricycles"][::2]:
         point = gps_near(rng, collector.get("assigned_barangay"))
         if not point:
             continue
@@ -777,7 +840,7 @@ def put_collectors_on_duty(rng: random.Random, cast: dict, keep: int = 7) -> int
         }, ACTOR)
         on += 1
 
-    for operator in cast["trucks"][:2]:
+    for operator in cast["trucks"][::2]:
         covered = operator.get("assigned_barangays") or []
         point = gps_near(rng, covered[0]) if covered else None
         if not point:
@@ -792,9 +855,9 @@ def put_collectors_on_duty(rng: random.Random, cast: dict, keep: int = 7) -> int
 
 
 def unavailable_requests(rng: random.Random, cast: dict, day: str) -> int:
-    """Two open requests, so the admin's reassignment counters are not zero."""
+    """A few open requests, so the admin's reassignment counters are not zero."""
     made = 0
-    for user in (cast["tricycles"][-1:] + cast["trucks"][-1:]):
+    for user in (cast["tricycles"][-3:] + cast["trucks"][-1:]):
         if storage.find_one("unavailable_requests", user_id=user["id"], status="Pending"):
             continue
         storage.insert("unavailable_requests", {
@@ -959,13 +1022,15 @@ def reset() -> dict:
     removed = {}
 
     def purge(collection: str, keep) -> None:
-        gone = 0
-        for record in list(storage.find(collection)):
-            if not keep(record):
-                storage.delete(collection, record["id"])
-                gone += 1
+        # One read and one write per collection. Deleting record by record
+        # rewrote the whole file for every row -- fine at a few thousand
+        # entries, most of an hour at the full city's eleven thousand.
+        with storage.transaction(collection) as rows:
+            kept = [r for r in rows if keep(r)]
+            gone = len(rows) - len(kept)
+            rows[:] = kept
         if gone:
-            removed[collection] = gone
+            removed[collection] = removed.get(collection, 0) + gone
 
     demo_users = {u["id"] for u in storage.find("users") if u.get("demo_generated")}
 
@@ -1044,7 +1109,8 @@ def main() -> int:
     cast = build_cast(rng)
     print(f"  accounts        {len(cast['tricycles'])} tricycle collectors, "
           f"{len(cast['trucks'])} truck operators, "
-          f"{len(cast['barangay_admins'])} barangay admins")
+          f"{len(cast['barangay_admins'])} barangay admins, "
+          f"{len(cast['city_admins'])} more City Hall admin(s)")
 
     made, registers_later = plan_properties(rng, go_live, days)
     backdated = backdate_setup(rng, go_live)
@@ -1085,7 +1151,7 @@ def main() -> int:
             arranged = arrange_carry_overs(rng, cast, day, share=.5 if is_today else .6)
             m = pickup_day(rng, cast, day, misses=3 if is_today else rng.choice([0, 1, 1, 2]),
                            collect_carry_overs=not is_today)
-            r = resident_reports(rng, day, count=4 if is_today else rng.randint(1, 3))
+            r = resident_reports(rng, day, count=10 if is_today else rng.randint(4, 8))
             print(f"  {day}      {c['collected']} collected, "
                   f"{c['not_collected']} refused, {m['collected']} MRFs picked up, "
                   f"{m['missed']} missed, {m['carried']} of {arranged} carry-overs "

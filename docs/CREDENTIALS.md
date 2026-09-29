@@ -57,13 +57,15 @@ same password:
 
 | Username | Role |
 |---|---|
-| `brgy01_admin` … `brgy10_admin` | Barangay Admin, one per barangay |
-| `tri01` … `tri10` | Tricycle Collector, one per barangay |
-| `trk01` … `trk04` | Truck Collector, covering the barangay MRFs |
+| `city_staff` | City Hall Admin, a second one beside `city_admin` |
+| `brgy01_admin` … `brgy31_admin` | Barangay Admin, one per barangay |
+| `tri01` … `tri31` | Tricycle Collector, one per barangay |
+| `trk02` … `trk08` | Truck Collector, TRK-02 to TRK-08, four MRFs each |
 
-Poblacion 1 keeps `brgy_admin` and `tri_collector` rather than getting a
-generated pair, so the four accounts above are the ones with a full day of
-activity behind them.
+Every one of the 31 barangays has households and three weeks of activity, and
+all eight trucks have a route. Poblacion 1 (barangay 16) keeps `brgy_admin` and
+`tri_collector` rather than getting a generated pair, and TRK-01 stays with
+`truck_collector` -- so there is no `brgy16_admin`, `tri16` or `trk01`.
 
 ---
 

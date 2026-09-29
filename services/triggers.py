@@ -240,12 +240,11 @@ def on_carry_over_created(carry_over: dict, pickup: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The barangay's own MRF -- what its tricycle collectors and admin hear
+# The barangay's own MRF -- what its admin hears
 #
-# Addressed to the barangay room, which is where a barangay's tricycle
-# collectors and its admin both listen. The tricycles fill this MRF all day;
-# whether the truck came for it, and when a missed load will be taken, is the
-# other half of their round.
+# Addressed to the barangay room. Its tricycle collectors listen there too,
+# but MRF alerts are hidden from them (notification_service.HIDDEN_FROM): the
+# tricycle round ends at the household.
 # ---------------------------------------------------------------------------
 
 def on_mrf_collected(pickup: dict, carry_over: dict | None = None) -> None:

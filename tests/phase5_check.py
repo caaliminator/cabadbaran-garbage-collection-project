@@ -250,11 +250,16 @@ ok("the zone layer is gone from the layer control",
 ok("map.js still holds no colour value", not re.search(r"#[0-9a-fA-F]{6}\b", map_js))
 ok("a scoped page still frames itself on its barangay",
    "focusBarangay" in map_js and "fitBounds" in map_js)
-ok("no MRF markers are drawn on the map",
-   "map-mrf" not in map_js and "map-mrf" not in css
-   and "/api/geo/mrfs" not in map_js)
-ok("the only markers left are the live vehicles",
-   "MRF locations" not in map_js and "'Live vehicles'" in map_js)
+ok("MRF pins are drawn from /api/geo/mrfs",
+   "/api/geo/mrfs" in map_js and "map-mrf" in map_js and ".map-mrf__body" in css)
+ok("a chosen barangay shows only its own MRF",
+   "m.barangay_id === state.barangay" in map_js)
+ok("changing the barangay filter redraws the MRFs",
+   "this.drawMrfs(state);" in map_js)
+ok("MRFs and live vehicles are both overlays in the layer control",
+   "MRFs: mrfLayer" in map_js and "'Live vehicles'" in map_js)
+ok("a page can leave the MRFs off (the tricycle collector's map)",
+   "mapNoMrfs" in map_js)
 
 print("\n[10b] vehicle pins carry a glyph for their kind")
 ok("map.js defines a tricycle and a truck glyph",

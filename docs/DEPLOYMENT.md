@@ -52,8 +52,9 @@ All of them share one password: `SEED_DEMO_PASSWORD` if you set it, otherwise
 | `brgy_admin` | Barangay Admin (Poblacion 1) |
 | `tri_collector` | Tricycle Collector |
 | `truck_collector` | Truck Collector |
-| `brgy01_admin`–`brgy10_admin` | Barangay Admins (from `make_demo_day.py`) |
-| `tri01`–`tri10`, `trk01`–`trk04` | Collectors (from `make_demo_day.py`) |
+| `city_staff` | Second City Hall Admin (from `make_demo_day.py`) |
+| `brgy01_admin`–`brgy31_admin` | Barangay Admins (from `make_demo_day.py`; no `brgy16_admin`) |
+| `tri01`–`tri31`, `trk02`–`trk08` | Collectors (from `make_demo_day.py`; no `tri16`) |
 
 **Set the two env vars if the URL is public**, since the default password is
 readable by anyone who can read the repo.

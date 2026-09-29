@@ -23,6 +23,9 @@
   <link rel="stylesheet" href="{{ asset('css/components.css') }}">
   <link rel="stylesheet" href="{{ asset('css/pages.css') }}">
   <link rel="stylesheet" href="{{ asset('css/roles.css') }}">
+  {# Before map.js (in the head block) and app.js/realtime.js (below): all
+     three share the one GPS watcher it provides. #}
+  <script src="{{ asset('js/position.js') }}" defer></script>
   {% block head %}{% endblock %}
 
   {# Apply the saved theme before first paint to avoid a flash of the wrong theme. #}

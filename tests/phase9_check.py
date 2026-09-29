@@ -216,8 +216,10 @@ ok("STORED so does the barangay admin whose MRF it is",
    any(notes_for(badmin, notification_service.CARRY_OVER_CREATED)))
 ok("STORED another barangay's admin does not",
    not any(notes_for(badmin2, notification_service.CARRY_OVER_CREATED)))
-ok("STORED the barangay's tricycle collector hears their MRF was missed",
-   any(notes_for(COL, notification_service.CARRY_OVER_CREATED)))
+ok("STORED the barangay's tricycle collector is not told -- MRF alerts are the admin's",
+   not any(notes_for(COL, notification_service.CARRY_OVER_CREATED)))
+ok("STORED nor is the truck collector serving that MRF",
+   not any(notes_for(OP, notification_service.CARRY_OVER_CREATED)))
 ok("STORED a tricycle collector in another barangay does not",
    not any(notes_for(COL2, notification_service.CARRY_OVER_CREATED)))
 ok("STORED it appears on the city's Carry-Over worklist as Missed Collection",
@@ -248,13 +250,15 @@ ok("LIVE  the operator is told the date moved",
    "notification_new" in fake.events_for(f"user:{op2['id']}"))
 ok("STORED the reschedule is in their bell",
    any("rescheduled" in (n.get("title") or "").lower() for n in notes_for(OP2)))
-_scheduled = notes_for(COL, notification_service.CARRY_OVER_SCHEDULED)
-ok("STORED the tricycle collector hears when the missed load will be taken",
+_scheduled = notes_for(badmin, notification_service.CARRY_OVER_SCHEDULED)
+ok("STORED the barangay admin hears when the missed load will be taken",
    _scheduled and "TRK-02" in _scheduled[0]["message"])
+ok("STORED the tricycle collector does not",
+   not notes_for(COL, notification_service.CARRY_OVER_SCHEDULED))
 ok("LIVE  and it is pushed to their barangay's room",
    "notification_new" in fake.events_for(B1_ROOM))
-ok("STORED another barangay's tricycle collector does not",
-   not notes_for(COL2, notification_service.CARRY_OVER_SCHEDULED))
+ok("STORED another barangay's admin does not",
+   not notes_for(badmin2, notification_service.CARRY_OVER_SCHEDULED))
 ok("STORED the stop is now on that operator's carry-over list",
    any(c["barangay_id"] == B1 and c.get("is_carry_over")
        for c in mrf_service.carry_over_cards_for_operator(OP2["id"])))
@@ -283,12 +287,18 @@ ok("STORED the load moved onto the collecting truck",
 ok("LIVE  the barangay and the city both hear the pickup",
    "mrf_pickup_saved" in fake.events_for(B1_ROOM)
    and "mrf_pickup_saved" in fake.events_for(CITY_ROOM))
-ok("STORED the tricycle collector hears the missed load was collected",
+ok("STORED the barangay admin hears the missed load was collected",
    any(n["title"] == "Carry-over collected"
-       for n in notes_for(COL, notification_service.MRF_COLLECTED)))
-ok("STORED another barangay's tricycle collector does not",
-   not notes_for(COL2, notification_service.MRF_COLLECTED))
+       for n in notes_for(badmin, notification_service.MRF_COLLECTED)))
+ok("STORED the tricycle collector does not",
+   not notes_for(COL, notification_service.MRF_COLLECTED))
+ok("STORED nor does the truck collector who collected it",
+   not notes_for(OP2, notification_service.MRF_COLLECTED))
+ok("STORED another barangay's admin does not",
+   not notes_for(badmin2, notification_service.MRF_COLLECTED))
 
+# TRK-02 finishes its own route before its landfill run.
+mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B2, OP2)
 fake.clear()
 delivery = mrf_service.deliver(OP2)
 ok("LIVE  the delivery reaches the city admin", "delivery_saved" in fake.events_for(CITY_ROOM))
@@ -300,15 +310,15 @@ ok("STORED the day's history counts that delivery",
 # The regular round: the first truck comes back and collects today's load.
 fake.clear()
 _regular = mrf_service.save_pickup(Form({"status": "Collected from MRF"}), B1, OP)
-_collected = [n for n in notes_for(COL, notification_service.MRF_COLLECTED)
+_collected = [n for n in notes_for(badmin, notification_service.MRF_COLLECTED)
               if n["title"] == "MRF collected"]
-ok("STORED the tricycle collector hears the truck collected today's load",
+ok("STORED the barangay admin hears the truck collected today's load",
    len(_collected) == 1 and "TRK-01" in _collected[0]["message"])
 ok("LIVE  pushed to their barangay's room",
    "notification_new" in fake.events_for(B1_ROOM))
 mrf_service.save_pickup(Form({"status": "Collected from MRF", "note": "fixed"}), B1, OP)
 ok("STORED saving the same pickup again does not alert them twice",
-   len([n for n in notes_for(COL, notification_service.MRF_COLLECTED)
+   len([n for n in notes_for(badmin, notification_service.MRF_COLLECTED)
         if n["title"] == "MRF collected"]) == 1)
 
 # ---------------------------------------------------------------------------

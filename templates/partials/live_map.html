@@ -12,13 +12,19 @@
              show_tabs, show_barangay_filter, map_height,
              map_locate (open on the viewer's own position), map_locate_zoom,
              map_follow (a vehicle code -- track this device and keep the
-             map on it; for the collector looking at their own route)
+             map on it; for the collector looking at their own route),
+             map_mrfs (barangay ids -- show only these MRFs, e.g. a truck's
+             covered route; the barangay filter narrows it further),
+             show_mrfs (false leaves the MRF layer off entirely -- the
+             tricycle collector's map)
    =========================================================================== #}
 
 <div class="map" data-map
      {% if map_scope %}data-map-scope="{{ map_scope }}"{% endif %}
      {% if map_locate or map_follow %}data-map-locate="{{ map_locate_zoom|default(16) }}"{% endif %}
      {% if map_follow %}data-map-follow="{{ map_follow }}"{% endif %}
+     {% if map_mrfs %}data-map-mrfs="{{ map_mrfs|join(',') }}"{% endif %}
+     {% if not show_mrfs|default(true) %}data-map-no-mrfs{% endif %}
      {% if locked_barangay %}data-map-barangay="{{ locked_barangay }}"{% endif %}>
 
   <div class="map__head">
@@ -83,6 +89,12 @@
       {{ icon('truck', 'map__legend-glyph') }}
       <strong data-legend="trucks">0</strong> Trucks Active
     </span>
+    {% if show_mrfs|default(true) %}
+      <span class="map__legend-item">
+        <span class="map__legend-mrf" aria-hidden="true">{{ icon('recycle', 'map__legend-glyph') }}</span>
+        <strong data-legend="mrfs">0</strong> MRFs
+      </span>
+    {% endif %}
     <span class="map__legend-item">
       <span class="map__legend-dot map__legend-dot--zone" aria-hidden="true"></span>
       <strong data-legend="barangays">0</strong> Barangays
