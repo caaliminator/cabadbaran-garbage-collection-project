@@ -215,11 +215,9 @@ def _may_take_over(existing: dict, status: str) -> bool:
 
 
 def assignment_for(operator_id: str) -> dict | None:
-    for row in storage.find(assignment_service.TRUCK_COLLECTION,
-                            operator_id=operator_id):
-        if assignment_service.is_active(row):
-            return row
-    return None
+    # The route this operator works today -- not one handed to a stand-in.
+    return assignment_service.working_assignment(
+        assignment_service.TRUCK_COLLECTION, operator_id)
 
 
 def cards_for_operator(operator_id: str, date=None) -> list[dict]:

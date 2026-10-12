@@ -195,6 +195,7 @@ def on_assignment_changed(assignment: dict, collector_id: str,
     if kind == "tricycle":
         barangay = storage.find_one("barangays", id=assignment.get("barangay_id")) or {}
         detail = (f"Brgy. {barangay.get('name', '')} · "
+                  f"{', '.join(assignment.get('purok_coverage') or []) or 'whole barangay'} · "
                   f"{assignment.get('tricycle_code')}")
     else:
         count = len(assignment.get("covered_mrfs") or [])
@@ -347,11 +348,10 @@ def on_carry_over_rescheduled(carry_over: dict) -> None:
 
 
 def _operator_for_truck(truck_code: str) -> dict | None:
-    for row in storage.read(assignment_service.TRUCK_COLLECTION):
-        if (row.get("truck_code") == truck_code
-                and assignment_service.is_active(row)):
-            return storage.get("users", row.get("operator_id"))
-    return None
+    # Whoever is driving it today: a stand-in over the operator they cover.
+    row = assignment_service.vehicle_worker(assignment_service.TRUCK_COLLECTION,
+                                            truck_code)
+    return storage.get("users", row.get("operator_id")) if row else None
 
 
 def on_public_report(report: dict) -> None:

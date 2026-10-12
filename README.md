@@ -27,12 +27,13 @@ are derived from the barangay coordinates — without it the map has nothing to
 draw and the vehicles have nowhere to stand.
 
 Only the last line is strictly required. Against a fresh clone or a wiped
-`data/`, `python app.py` runs the first two steps itself before serving a
-request: it seeds the accounts if there are none, and writes the illustrative
-map geometry if `data/geo/` is still stubs. So the logins work offline, and
-the map has barangay shapes to draw and to zoom to. `make_demo_day.py` is the
-one step it does not do — that is the week of activity, and it stays opt-in.
-Set `AUTO_SEED=0` to turn the automatic pass off entirely.
+`data/`, `python app.py` runs all three steps itself before serving a
+request: it seeds the accounts if there are none, writes the illustrative map
+geometry if `data/geo/` is still stubs, and then — only on a store it has just
+seeded — runs `make_demo_day.py` for the full cast (a barangay admin and a
+tricycle collector in each of the 31 barangays, eight truck operators) and
+three weeks of activity. That first start takes a few minutes; later starts
+skip it. Set `AUTO_SEED=0` to turn the automatic pass off entirely.
 
 Then open <http://127.0.0.1:5000> — or <http://127.0.0.1:5000/public/> for the
 citizen-facing page, which needs no login.

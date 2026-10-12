@@ -174,9 +174,34 @@ COLLECTOR_NAMES = [
     "Reynaldo Bolo", "Evangeline Cortes", "Felix Dumanon", "Gemma Eleccion",
     "Honorio Fuentes", "Josephine Galon", "Leonardo Hermoso",
 ]
+# One per barangay, in barangay order. Poblacion 1 (16) is Rosario Pagaran,
+# the brgy_admin login seed.py creates.
+BARANGAY_ADMIN_NAMES = [
+    "Lilibeth Amora", "Nestor Bagsican", "Corazon Calo", "Herminio Dalogdog",
+    "Marilou Eballe", "Fernando Gaid", "Rebecca Hinampas", "Gilbert Idul",
+    "Susana Jumawan", "Antonio Lagura", "Editha Mahinay", "Ricardo Neri",
+    "Gloria Ortiz", "Pablito Pagobo", "Elvira Quiñones", "Rosario Pagaran",
+    "Danilo Ruelo", "Milagros Sanchez", "Vicente Tagaylo", "Norma Ubanan",
+    "Rolando Valmores", "Estrella Wenceslao", "Jaime Yu", "Lourdes Zafra",
+    "Efren Abrenica", "Clarita Bacus", "Romeo Canoy", "Aida Delideli",
+    "Manuel Escobido", "Nenita Gamboa", "Restituto Ladera",
+]
 OPERATOR_NAMES = [
     "Alfredo Marasigan", "Divina Nazareno", "Teodoro Ochoa", "Jocelyn Padilla",
     "Crisanto Quimbo", "Maricel Reyes", "Eduardo Sayson", "Norberto Tumulak",
+]
+
+# Relief collectors: no route and no vehicle of their own. They stand in for
+# a collector on leave and drive that collector's unit. (username, name, home
+# barangay number -- a tricycle collector account needs one).
+RELIEF_TRICYCLE = [
+    ("relief01", "Marlon Abellanosa", 16),
+    ("relief02", "Jennifer Bagaipo", 5),
+    ("relief03", "Ronnie Catubig", 24),
+]
+RELIEF_TRUCK = [
+    ("trkrelief01", "Victor Lagahit"),
+    ("trkrelief02", "Arlene Mendez"),
 ]
 
 
@@ -259,7 +284,8 @@ def ensure_user(username: str, payload: dict) -> dict:
 def build_cast(rng: random.Random) -> dict:
     """Accounts and assignments for the active barangays. Idempotent."""
     barangays = {b["id"]: b for b in storage.find("barangays")}
-    cast = {"tricycles": [], "trucks": [], "barangay_admins": [], "city_admins": []}
+    cast = {"tricycles": [], "trucks": [], "barangay_admins": [], "city_admins": [],
+            "relief_tricycles": [], "relief_trucks": []}
 
     for username, name in CITY_STAFF:
         cast["city_admins"].append(ensure_user(username, {
@@ -280,9 +306,10 @@ def build_cast(rng: random.Random) -> dict:
                                      assigned_barangay=bid)
              if u.get("status") == "Active"), None)
         admin = existing_admin or ensure_user(f"brgy{n:02d}_admin", {
-            "full_name": f"{brgy['name']} Barangay Admin",
+            "full_name": BARANGAY_ADMIN_NAMES[(n - 1) % len(BARANGAY_ADMIN_NAMES)],
             "role": "barangay_admin",
             "assigned_barangay": bid,
+            "contact_number": f"09{rng.randint(100000000, 999999999)}",
         })
         cast["barangay_admins"].append(admin)
 
@@ -361,6 +388,20 @@ def build_cast(rng: random.Random) -> dict:
                 "demo_generated": True,
             }, ACTOR)
         _claim_vehicle(truck)
+
+    for username, name, home in RELIEF_TRICYCLE:
+        cast["relief_tricycles"].append(ensure_user(username, {
+            "full_name": name,
+            "role": "tricycle_collector",
+            "assigned_barangay": barangay_id(home),
+            "contact_number": f"09{rng.randint(100000000, 999999999)}",
+        }))
+    for username, name in RELIEF_TRUCK:
+        cast["relief_trucks"].append(ensure_user(username, {
+            "full_name": name,
+            "role": "truck_collector",
+            "contact_number": f"09{rng.randint(100000000, 999999999)}",
+        }))
 
     return cast
 
@@ -462,13 +503,16 @@ def gps_near(rng: random.Random, bid: str) -> dict | None:
 
 
 def collect_day(rng: random.Random, cast: dict, day: str,
-                completion: float = .78, absent: set | None = None) -> dict:
+                completion: float = .78, absent: set | None = None,
+                covers: dict | None = None) -> dict:
     """
     Tricycle entries for one date. `completion` is roughly how far through
     their route the collectors got -- deliberately short of 1.0 so Pending is
     a real number on the dashboard -- and each collector's own figure varies
     around it, because no two rounds finish the same. A collector in `absent`
-    was off that day on an approved request and records nothing.
+    was off that day on an approved request and records nothing -- unless
+    `covers` names the relief collector standing in, who works the round in
+    that collector's tricycle.
 
     One batch per day: every property's entry for the date is written in a
     single store write (see insert_many).
@@ -476,6 +520,7 @@ def collect_day(rng: random.Random, cast: dict, day: str,
     stats = {"collected": 0, "not_collected": 0}
     schedule = schedule_service.for_date(day)
     absent = absent or set()
+    covers = covers or {}
     done = {e["property_id"] for e in storage.find("collections", date=day)}
     batch = []
     # Refusal rates move a little from day to day too: a rainy morning, a
@@ -483,7 +528,8 @@ def collect_day(rng: random.Random, cast: dict, day: str,
     refusal = rng.uniform(.06, .12)
 
     for index, collector in enumerate(cast["tricycles"]):
-        if collector["id"] in absent:
+        worker = covers.get(collector["id"]) or collector
+        if collector["id"] in absent and worker is collector:
             continue
         bid = collector.get("assigned_barangay")
         puroks = collector.get("assigned_puroks") or []
@@ -508,13 +554,13 @@ def collect_day(rng: random.Random, cast: dict, day: str,
             stamp = f"{day}T{hour:02d}:{minute:02d}:00+08:00"
             batch.append({
                 "created_at": stamp,
-                "created_by": collector["id"],
+                "created_by": worker["id"],
                 "property_id": prop["id"],
                 "barangay_id": bid,
                 "purok": prop.get("purok"),
                 "date": day,
                 "status": "Not Collected" if refused else "Collected",
-                "collector_id": collector["id"],
+                "collector_id": worker["id"],
                 "tricycle_code": collector.get("assigned_vehicle"),
                 "gps": gps_near(rng, bid),
                 "timestamp": stamp,
@@ -574,14 +620,18 @@ def arrange_carry_overs(rng: random.Random, cast: dict, day: str,
 
 
 def pickup_day(rng: random.Random, cast: dict, day: str,
-               misses: int = 2, collect_carry_overs: bool = True) -> dict:
+               misses: int = 2, collect_carry_overs: bool = True,
+               covers: dict | None = None) -> dict:
     """
     One day of truck work: the day's regular stops, each holding that day's
     batch only, plus any carry-over stops arranged for the day. Some regular
     stops are missed on purpose, so the Carry-Over page and the Missed Pickup
-    counter have real records behind them.
+    counter have real records behind them. An operator in `covers` is on
+    leave, and the relief operator named there drives the route instead.
     """
     from services import carryover_service, mrf_service, triggers
+
+    covers = covers or {}
 
     stats = {"collected": 0, "missed": 0, "delivered": 0, "carried": 0}
     missed_today = 0
@@ -598,6 +648,8 @@ def pickup_day(rng: random.Random, cast: dict, day: str,
         assignment = storage.find_one("assignments_truck", operator_id=operator["id"])
         if not assignment:
             continue
+        # The route is the regular operator's; the records are whoever drove.
+        operator = covers.get(operator["id"]) or operator
         picked = []
 
         # Carry-over stops first: an earlier day's load, arranged for today.
@@ -799,7 +851,7 @@ def resident_reports(rng: random.Random, day: str, count: int = 4) -> int:
                 "Nobody collected our garbage this morning.",
                 "Still waiting since 7 AM.",
             ]),
-            "device_fingerprint": f"demo-{rng.randint(1000, 9999)}",
+            "device_fingerprint": f"web-{rng.randint(1000, 9999)}",
             "date": day,
             "created_at": stamp_at(day, rng.randint(8, 17), rng.randint(0, 59)),
             "demo_generated": True,
@@ -822,14 +874,22 @@ def resident_reports(rng: random.Random, day: str, count: int = 4) -> int:
     return made
 
 
-def put_collectors_on_duty(rng: random.Random, cast: dict) -> int:
+def put_collectors_on_duty(rng: random.Random, cast: dict,
+                           covers: dict | None = None) -> int:
     """
     Park vehicles on the map, so Live Tracking is not an empty frame: every
     other tricycle, spread across the city, and half the trucks. Positions are
-    inside their own barangay.
+    inside their own barangay. A collector on leave today is not out -- the
+    relief collector covering them is, in their place.
     """
+    covers = covers or {}
     on = 0
-    for collector in cast["tricycles"][::2]:
+    working = [covers.get(c["id"]) or c for c in cast["tricycles"][::2]]
+    for user in cast["tricycles"][1::2]:
+        if covers.get(user["id"]):
+            working.append(covers[user["id"]])
+    for collector in working:
+        collector = storage.get("users", collector["id"]) or collector
         point = gps_near(rng, collector.get("assigned_barangay"))
         if not point:
             continue
@@ -840,7 +900,10 @@ def put_collectors_on_duty(rng: random.Random, cast: dict) -> int:
         }, ACTOR)
         on += 1
 
-    for operator in cast["trucks"][::2]:
+    trucks = [covers.get(o["id"]) or o for o in cast["trucks"][::2]]
+    trucks += [covers[o["id"]] for o in cast["trucks"][1::2] if covers.get(o["id"])]
+    for operator in trucks:
+        operator = storage.get("users", operator["id"]) or operator
         covered = operator.get("assigned_barangays") or []
         point = gps_near(rng, covered[0]) if covered else None
         if not point:
@@ -927,52 +990,133 @@ def backdate_setup(rng: random.Random, go_live) -> int:
     return len(stamps)
 
 
-def past_leave(rng: random.Random, cast: dict, go_live, days: int) -> dict:
+def _cover(kind: str, original: dict, relief: dict, start: str, end: str,
+           reason: str, request: dict, decided: str) -> None:
     """
-    A few unavailability requests across the weeks, decided by City Hall the
-    way the Unavailability page records them. An approved day off is a day
-    that collector did not work, so it is returned as {date: {collector ids}}
-    for the day loop to leave their round untouched.
+    The Temporary Replacement City Hall attaches to an approved absence: the
+    relief collector takes the absent collector's route in their vehicle for
+    the dates of the leave, recorded against the request.
+    """
+    from services import assignment_service, unavailable_service
+
+    if kind == "tricycle":
+        collection, who = assignment_service.TRICYCLE_COLLECTION, "collector_id"
+        route = {"barangay_id": original.get("assigned_barangay"),
+                 "purok_coverage": list(original.get("assigned_puroks") or []),
+                 "tricycle_code": original.get("assigned_vehicle")}
+    else:
+        collection, who = assignment_service.TRUCK_COLLECTION, "operator_id"
+        own = storage.find_one(collection, operator_id=original["id"]) or {}
+        route = {"truck_code": own.get("truck_code"),
+                 "covered_mrfs": own.get("covered_mrfs") or [],
+                 "planned_pickup_times": own.get("planned_pickup_times") or {}}
+
+    record = storage.insert(collection, {
+        who: relief["id"], **route,
+        "effective_date": start, "until_date": end,
+        "status": assignment_service.REPLACEMENT,
+        "note": f"Covering {original['full_name']} ({reason.lower()}).",
+        # What the relief account goes back to when the cover ends.
+        "account_before": {"user_id": relief["id"],
+                           **{f: relief.get(f) for f in assignment_service.ACCOUNT_FIELDS}},
+        "account_applied": False, "account_restored": False,
+        "demo_generated": True,
+    }, ACTOR)
+    set_created(collection, {record["id"]: decided})
+    unavailable_service.link_replacement(request["id"], kind, record["id"], ACTOR)
+
+
+def past_leave(rng: random.Random, cast: dict, go_live, days: int) -> tuple[dict, dict]:
+    """
+    Unavailability requests across the weeks, decided by City Hall the way
+    the Unavailability page records them, most with a relief collector
+    standing in: a few finished, one running today, and one lined up for
+    later in the week.
+
+    Returns (absent, covers): {date: {collector ids off that day}} and
+    {date: {absent collector id: relief collector}}, so the day loop leaves an
+    uncovered round untouched and has the stand-in work a covered one.
     """
     admin = storage.find_one("users", role="city_admin")
     absent: dict = {}
+    covers: dict = {}
     if not admin or days < 8:
-        return absent
+        return absent, covers
     # Built once. The dates come from the shared random sequence, which a
     # second run walks differently, so "is this one there already" could not
     # recognise them and every re-run added four more.
     if storage.find_one("unavailable_requests",
                         lambda r: r.get("demo_generated") and r.get("status") != "Pending"):
-        return absent
-    stories = [
-        (cast["tricycles"][1:2], "Sick", "Approved", "Fever. Will be back the day after."),
-        (cast["trucks"][2:3], "Vehicle repair", "Approved", "Clutch replaced at the city motor pool."),
-        (cast["tricycles"][4:5], "Family emergency", "Rejected",
-         "Please arrange a swap with the Purok 2 collector instead."),
-        (cast["tricycles"][6:7], "Sick", "Approved", ""),
+        return absent, covers
+
+    tri, trk = cast["tricycles"], cast["trucks"]
+    relief_tri, relief_trk = cast["relief_tricycles"], cast["relief_trucks"]
+    today = timeutil.today()
+
+    # (who, reason, decision, note, stand-in, first day offset, last day offset)
+    # Past ones fall on random days in the history; offsets are from today.
+    past = [
+        (tri[1:2], "Sick", "Approved", "Fever. Will be back the day after.", relief_tri[0:1]),
+        (trk[2:3], "Sick", "Approved", "Flu. The relief operator takes the route.", relief_trk[0:1]),
+        (tri[4:5], "Family emergency", "Rejected",
+         "Please arrange a swap with the Purok 2 collector instead.", []),
+        (tri[6:7], "Sick", "Approved", "", relief_tri[1:2]),
     ]
-    for (who, reason, decision, note), when in zip(
-            stories, sorted(rng.sample(range(3, days - 2), min(4, days - 5)))):
+    stories = [(who, reason, decision, note, cover, when, when)
+               for (who, reason, decision, note, cover), when in zip(
+                   past, [(go_live + timedelta(days=d)) - today for d in
+                          sorted(rng.sample(range(3, days - 2), min(4, days - 5)))])]
+    stories += [
+        # Off yesterday to tomorrow, covered -- the replacement in force today.
+        (tri[10:11], "Sick", "Approved", "Dengue recovery, cleared to return Monday.",
+         relief_tri[2:3], timedelta(days=-1), timedelta(days=1)),
+        (trk[5:6], "Family emergency", "Approved", "",
+         relief_trk[0:1], timedelta(days=0), timedelta(days=1)),
+        # Lined up ahead -- shows as Scheduled until it starts.
+        (tri[12:13], "Family emergency", "Approved", "Out of town for a family wake.",
+         relief_tri[0:1], timedelta(days=3), timedelta(days=4)),
+    ]
+
+    for who, reason, decision, note, cover, first, last in stories:
         if not who:
             continue
         user = who[0]
-        day = go_live + timedelta(days=when)
+        start, end = today + first, today + last
         if storage.find_one("unavailable_requests", user_id=user["id"],
-                            affected_date=timeutil.date_str(day)):
+                            affected_date=timeutil.date_str(start)):
             continue
-        asked = stamp_at(day - timedelta(days=1), rng.randint(17, 20), rng.randint(0, 59))
-        decided = stamp_at(day - timedelta(days=1), 21, rng.randint(0, 59))
-        storage.insert("unavailable_requests", {
+        # Asked and decided the evening before -- or, for leave already under
+        # way or still to come, the evening before it starts but never later
+        # than yesterday evening.
+        asked_on = min(start, today) - timedelta(days=1)
+        asked = stamp_at(asked_on, rng.randint(17, 20), rng.randint(0, 59))
+        decided = stamp_at(asked_on, 21, rng.randint(0, 59))
+        request = storage.insert("unavailable_requests", {
             "user_id": user["id"], "role": user["role"],
-            "affected_date": timeutil.date_str(day), "unavailable_until": "",
+            "affected_date": timeutil.date_str(start),
+            "unavailable_until": timeutil.date_str(end) if end != start else "",
             "reason": reason, "notes": "", "status": decision,
             "decided_by": admin["id"], "decided_at": decided,
             "decision_note": note, "resolved_at": decided,
             "created_at": asked, "demo_generated": True,
         }, user["id"])
-        if decision == "Approved" and user["role"] == "tricycle_collector":
-            absent.setdefault(timeutil.date_str(day), set()).add(user["id"])
-    return absent
+        if decision != "Approved":
+            continue
+
+        relief = cover[0] if cover else None
+        kind = "tricycle" if user["role"] == "tricycle_collector" else "truck"
+        if relief:
+            _cover(kind, user, relief, timeutil.date_str(start),
+                   timeutil.date_str(end), reason, request, decided)
+        day = start
+        while day <= end:
+            key = timeutil.date_str(day)
+            if kind == "tricycle":
+                absent.setdefault(key, set()).add(user["id"])
+            if relief:
+                covers.setdefault(key, {})[user["id"]] = relief
+            day += timedelta(days=1)
+    return absent, covers
 
 
 def settle_disputes(rng: random.Random, day: str) -> int:
@@ -1075,7 +1219,8 @@ def reset() -> dict:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """`argv` lets app.py run this in-process; None reads the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS,
                         help="how many days of history, today included")
@@ -1083,7 +1228,7 @@ def main() -> int:
                         help="delete generated activity, then stop")
     parser.add_argument("--seed", type=int, default=20260820,
                         help="random seed, so a demo is reproducible")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     storage.bootstrap()
 
@@ -1102,7 +1247,7 @@ def main() -> int:
     days = max(1, args.days)
     today = timeutil.today()
     go_live = today - timedelta(days=days - 1)
-    print(f"Filling {Config.CITY_NAME} with demo activity "
+    print(f"Filling {Config.CITY_NAME} with sample activity "
           f"({len(active_numbers())} barangays, {days} day(s), "
           f"live since {timeutil.display_date(go_live)})")
 
@@ -1110,7 +1255,8 @@ def main() -> int:
     print(f"  accounts        {len(cast['tricycles'])} tricycle collectors, "
           f"{len(cast['trucks'])} truck operators, "
           f"{len(cast['barangay_admins'])} barangay admins, "
-          f"{len(cast['city_admins'])} more City Hall admin(s)")
+          f"{len(cast['city_admins'])} more City Hall admin(s), "
+          f"{len(cast['relief_tricycles']) + len(cast['relief_trucks'])} relief collectors")
 
     made, registers_later = plan_properties(rng, go_live, days)
     backdated = backdate_setup(rng, go_live)
@@ -1120,7 +1266,7 @@ def main() -> int:
           f"{total} in total")
     print(f"  set-up dates    {backdated} accounts dated to the week before go-live")
 
-    absent = past_leave(rng, cast, go_live, days)
+    absent, covers = past_leave(rng, cast, go_live, days)
 
     # A day this tool has already built is left exactly as it is. Skipping
     # only duplicate entries was not enough: a second run filled in the
@@ -1144,20 +1290,23 @@ def main() -> int:
             # Past days finish; today is deliberately still in progress.
             c = collect_day(rng, cast, day,
                             completion=.78 if is_today else rng.uniform(.9, .98),
-                            absent=absent.get(day))
+                            absent=absent.get(day), covers=covers.get(day))
             # The admin arranges some of the earlier misses for this day. On
             # past days the truck then collects them; today they are left
             # Pending, so the truck page has live carry-over stops to show.
             arranged = arrange_carry_overs(rng, cast, day, share=.5 if is_today else .6)
             m = pickup_day(rng, cast, day, misses=3 if is_today else rng.choice([0, 1, 1, 2]),
-                           collect_carry_overs=not is_today)
+                           collect_carry_overs=not is_today, covers=covers.get(day))
             r = resident_reports(rng, day, count=10 if is_today else rng.randint(4, 8))
             print(f"  {day}      {c['collected']} collected, "
                   f"{c['not_collected']} refused, {m['collected']} MRFs picked up, "
                   f"{m['missed']} missed, {m['carried']} of {arranged} carry-overs "
                   f"collected, {m['delivered']} landfill runs, {r} resident reports"
                   + (f", {len(joined)} new household(s)" if joined else "")
-                  + (", a collector off on approved leave" if absent.get(day) else ""))
+                  + (f", {len(covers.get(day, {}))} route(s) worked by a relief collector"
+                     if covers.get(day) else "")
+                  + (", a collector off on approved leave"
+                     if set(absent.get(day, ())) - set(covers.get(day, {})) else ""))
         else:
             print(f"  {day}      no collection scheduled"
                   + (f", {len(joined)} new household(s)" if joined else ""))
@@ -1172,8 +1321,13 @@ def main() -> int:
     print(f"  carry-overs     {staged['pending']} rescheduled and pending, "
           f"{staged['missed']} still unassigned")
 
+    # The relief accounts take on the route and vehicle of a cover in force
+    # today, exactly as the app's daily rollover would do it.
+    from services import assignment_service
+    assignment_service.sync_replacement_accounts(ACTOR)
+
     day = timeutil.date_str(today)
-    on_duty = put_collectors_on_duty(rng, cast)
+    on_duty = put_collectors_on_duty(rng, cast, covers.get(day))
     requests = unavailable_requests(rng, cast, day)
     print(f"  live map        {on_duty} vehicles on duty")
     print(f"  unavailable     {requests} open request(s)")

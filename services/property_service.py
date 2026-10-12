@@ -108,13 +108,26 @@ def listing(barangay_id: str | None = None, puroks: list[str] | None = None,
 
 def for_collector(assignment: dict | None) -> list[dict]:
     """
-    The route list for one tricycle collector: every property in the barangay
-    they are assigned to. No assignment means no route -- an unassigned
-    collector sees nothing, not everything.
+    The route list for one tricycle collector: the properties in the puroks
+    they cover, in their barangay. No assignment means no route -- an
+    unassigned collector sees nothing, not everything. An assignment saved
+    before puroks were required has none, and keeps its whole barangay.
     """
     if not assignment:
         return []
-    return listing(barangay_id=assignment.get("barangay_id"), newest_first=False)
+    return listing(barangay_id=assignment.get("barangay_id"),
+                   puroks=assignment.get("purok_coverage") or None,
+                   newest_first=False)
+
+
+def in_route(prop: dict, assignment: dict | None) -> bool:
+    """Is this property on that assignment's route? The same scope as above."""
+    if not prop or not assignment:
+        return False
+    if prop.get("barangay_id") != assignment.get("barangay_id"):
+        return False
+    puroks = assignment.get("purok_coverage")
+    return not puroks or prop.get("purok") in puroks
 
 
 def count_for(barangay_id: str | None = None) -> int:

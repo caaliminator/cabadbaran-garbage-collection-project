@@ -245,8 +245,17 @@ def collections():
     # Who each row's entry was recorded by, and -- for a property nobody has
     # reached yet -- who is expected to. Without this the detail dialog had a
     # hardcoded dash where the collector's name belongs.
-    expected = next((r for r in collector_rows
-                     if r.get("status") in assignment_service.ACTIVE_STATUSES), None)
+    # Expected means the collector whose puroks include that property's: a
+    # replacement over the regular route it covers, and an older assignment
+    # with no puroks covering the whole barangay.
+    active = [r for r in collector_rows
+              if r.get("status") in assignment_service.ACTIVE_STATUSES]
+    active.sort(key=lambda r: r.get("status") != assignment_service.REPLACEMENT)
+
+    def expected_for(purok):
+        return next((r for r in active
+                     if not r.get("puroks") or purok in r["puroks"]), None)
+
     rows = collection_service.route_with_status(properties, date)
     for row in rows:
         entry = row.get("entry")
@@ -255,6 +264,7 @@ def collections():
             row["collector"] = who.get("full_name") or "Deleted account"
             row["vehicle"] = entry.get("tricycle_code") or "—"
         else:
+            expected = expected_for(row.get("purok"))
             row["collector"] = (expected or {}).get("collector") or "Not assigned"
             row["vehicle"] = (expected or {}).get("tricycle") or "—"
 

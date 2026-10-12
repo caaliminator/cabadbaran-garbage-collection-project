@@ -12,6 +12,8 @@
     <p class="page__sub">
       {% if assignment %}
         Brgy. {{ barangay }} · {{ assignment.tricycle_code }}
+      {% elif covered_by %}
+        On leave · covered by {{ covered_by.name }}
       {% else %}
         No route assigned yet
       {% endif %}
@@ -63,7 +65,16 @@
   </div>
 </section>
 
-{% if not assignment %}
+{% if not assignment and covered_by %}
+  <div class="card"><div class="card__body">
+    {{ empty('Your route is covered',
+             covered_by.name ~ ' is covering your route' ~
+             (' until ' ~ covered_by.until if covered_by.until else '') ~
+             ' while you are on approved leave. It comes back to you after that.',
+             'home') }}
+  </div></div>
+
+{% elif not assignment %}
   <div class="card"><div class="card__body">
     {{ empty('No route assigned',
              'The City Hall Admin has not assigned you a barangay and purok coverage yet. Your route will appear here once they do.',

@@ -90,10 +90,11 @@ op2 = user_service.create({"full_name": "Op 9b", "username": "op_nineb",
                            "password": "goodpass1", "confirm_password": "goodpass1"}, ADMIN)
 
 assignment_service.save_tricycle_assignment(Form({
+    "purok_coverage": [f"Purok {n}" for n in range(1, 8)],  # the whole barangay
     "collector_id": col["id"], "barangay_id": B1, "tricycle_code": "TRI-01",
     "effective_date": TODAY, "status": "Active"}), None, ADMIN)
 assignment_service.save_truck_assignment(Form({
-    "operator_id": op["id"], "truck_code": "TRK-01", "covered_mrfs": [B1, B2],
+    "operator_id": op["id"], "truck_code": "TRK-01", "covered_mrfs": [B1],
     "effective_date": TODAY, "status": "Active",
     "planned_time__brgy-01": "10:00"}), None, ADMIN)
 assignment_service.save_truck_assignment(Form({
@@ -107,6 +108,7 @@ col2 = user_service.create({"full_name": "Col 9b", "username": "col_nineb",
                             "assigned_vehicle": "TRI-02", "password": "goodpass1",
                             "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_tricycle_assignment(Form({
+    "purok_coverage": [f"Purok {n}" for n in range(1, 8)],  # the whole barangay
     "collector_id": col2["id"], "barangay_id": B2, "tricycle_code": "TRI-02",
     "effective_date": TODAY, "status": "Active"}), None, ADMIN)
 
@@ -413,7 +415,7 @@ ok("a city admin's rooms include the city room and every barangay",
    CITY_ROOM in realtime.rooms_for(cadmin)
    and sum(1 for r in realtime.rooms_for(cadmin) if r.startswith("barangay:")) == 31)
 ok("a truck operator's rooms are only the barangays they cover",
-   {r for r in realtime.rooms_for(OP) if r.startswith("barangay:")} == {B1_ROOM, B2_ROOM})
+   {r for r in realtime.rooms_for(OP) if r.startswith("barangay:")} == {B1_ROOM})
 ok("an anonymous resident gets the public room and nothing else",
    realtime.rooms_for(None) == ["public"])
 

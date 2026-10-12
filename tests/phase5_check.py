@@ -62,6 +62,7 @@ col = user_service.create({"full_name": "Col One", "username": "col_one",
                            "assigned_vehicle": "TRI-01", "password": "goodpass1",
                            "confirm_password": "goodpass1"}, ADMIN)
 assignment_service.save_tricycle_assignment(Form({
+    "purok_coverage": [f"Purok {n}" for n in range(1, 8)],  # the whole barangay
     "collector_id": col["id"], "barangay_id": B1,
     "tricycle_code": "TRI-01", "effective_date": timeutil.today_str(),
     "status": "Active"}), None, ADMIN)

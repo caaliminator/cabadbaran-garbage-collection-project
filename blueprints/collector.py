@@ -78,9 +78,28 @@ def _shell(role, **extra):
         "profile_endpoint": f"collector.{role}_profile",
         "tracking_endpoint": None,
         "portal_label": user.get("portal_label", "Garbage Collection Tracking System"),
+        "covered_by": _covered_by(role, user.get("id")),
     }
     context.update(extra)
     return context
+
+
+def _covered_by(role, user_id):
+    """
+    Who is standing in on this collector's route while they are on leave, so
+    their portal says that instead of "no route assigned".
+    """
+    collection = (assignment_service.TRICYCLE_COLLECTION if role == "tricycle"
+                  else assignment_service.TRUCK_COLLECTION)
+    own = assignment_service.regular_route(collection, user_id)
+    cover = assignment_service.covering_replacement(collection, own) if own else None
+    if not cover:
+        return None
+    who = "collector_id" if role == "tricycle" else "operator_id"
+    stand_in = storage.get("users", cover.get(who)) or {}
+    return {"name": stand_in.get("full_name") or "A relief collector",
+            "until": timeutil.display_date(cover["until_date"])
+                     if cover.get("until_date") else None}
 
 
 def _my_assignment():
@@ -88,15 +107,12 @@ def _my_assignment():
     The signed-in tricycle collector's active assignment, or None.
 
     A Temporary Replacement is an active assignment, so the replacement sees
-    the route; the original collector's own assignment is what determines
-    whether they still see it (spec section 7).
+    the route, and while it is in force the original collector does not
+    (spec section 7).
     """
     user = current_user() or {}
-    for row in storage.find(assignment_service.TRICYCLE_COLLECTION,
-                            collector_id=user.get("id")):
-        if assignment_service.is_active(row):
-            return row
-    return None
+    return assignment_service.working_assignment(
+        assignment_service.TRICYCLE_COLLECTION, user.get("id"))
 
 
 # ===========================================================================
@@ -178,7 +194,7 @@ def tricycle_record(property_id):
     # city by editing the URL.
     if not prop or not assignment:
         abort(404)
-    if prop.get("barangay_id") != assignment.get("barangay_id"):
+    if not property_service.in_route(prop, assignment):
         abort(403, description="That property is outside your assigned route.")
 
     entry = collection_service.entry_for(property_id)

@@ -80,7 +80,7 @@
               <tr>
                 <td data-label="Name">
                   <span class="strong">{{ c.collector }}</span>
-                  <span class="sub">{{ c.username }}</span>
+                  <span class="sub">{{ c.username }}{% if c.puroks %} · {{ c.puroks|join(', ') }}{% endif %}</span>
                 </td>
                 <td data-label="TRI No."><span class="mono">{{ c.tricycle }}</span></td>
                 <td data-label="Entries">

@@ -23,11 +23,13 @@ pages are built mobile-first, and that is how they are meant to be seen.
 
 ## Offline and local runs
 
-The same four logins work with no network and no deploy. `data/` is gitignored
+The same logins work with no network and no deploy. `data/` is gitignored
 — it holds password hashes — so a fresh clone starts with no accounts at all,
 and the login page rejects every password because there is nothing to match
 against. `python app.py` handles that itself: when the user collection is
-empty it runs the seed first, then serves the app. Nothing to remember, and it
+empty it runs the seed, then `tools/make_demo_day.py` for the rest of the
+cast and three weeks of activity (a few minutes, once), then serves the app.
+Nothing to remember, and it
 is the same `seed_password()` the deploy uses, so the credentials are the same
 in both places.
 
@@ -61,9 +63,21 @@ same password:
 | `brgy01_admin` … `brgy31_admin` | Barangay Admin, one per barangay |
 | `tri01` … `tri31` | Tricycle Collector, one per barangay |
 | `trk02` … `trk08` | Truck Collector, TRK-02 to TRK-08, four MRFs each |
+| `relief01` … `relief03` | Relief Tricycle Collector -- no route or unit of their own |
+| `trkrelief01`, `trkrelief02` | Relief Truck Collector -- no route or truck of their own |
+
+The relief collectors stand in for collectors on approved leave, driving the
+absent collector's own vehicle. The sample data has a few finished covers, one
+in force today (`relief03` on Katugasan / TRI-11 for `tri11`, `trkrelief01` on
+TRK-06 for `trk06`) and one scheduled later in the week. Log in as the absent
+collector to see their portal say who is covering them; `relief02` and
+`trkrelief02` are free, for trying the Assign form yourself.
 
 Every one of the 31 barangays has households and three weeks of activity, and
-all eight trucks have a route. Poblacion 1 (barangay 16) keeps `brgy_admin` and
+all eight trucks have a route. Every account carries a person's name and a
+contact number -- the sample data never says "demo" anywhere a user can see
+it. Poblacion 1's three seeded logins are Rosario Pagaran (`brgy_admin`),
+Perla Quijano (`tri_collector`) and Alfredo Marasigan (`truck_collector`). Poblacion 1 (barangay 16) keeps `brgy_admin` and
 `tri_collector` rather than getting a generated pair, and TRK-01 stays with
 `truck_collector` -- so there is no `brgy16_admin`, `tri16` or `trk01`.
 

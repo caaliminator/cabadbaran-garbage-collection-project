@@ -1,32 +1,34 @@
 """
-Route assignments -- which collector works which barangay, and which truck
-operator empties which barangay MRFs.
+Route assignments -- which collector works which puroks of a barangay, and
+which truck operator empties which barangay MRFs.
 
-A tricycle assignment is barangay-wide. It used to also carry a purok
-coverage list, which meant the admin picked the puroks on top of the barangay
-and every consumer had to reason about a second level of scope. In practice a
-tricycle works the barangay it is assigned to, so the barangay is the unit of
-coverage and the purok list is gone.
-
-Two rules run through everything here:
+A tricycle assignment covers at least one purok of its barangay; a truck
+assignment covers at least one barangay MRF. The rules, all hard errors:
 
   * one collector holds one active assignment, and one vehicle serves one
-    active assignment. Both are hard errors -- a duplicate would make the
-    route lists ambiguous and double-count the collected load.
-  * overlapping coverage is a *warning*, not an error. Two tricycles sharing a
-    barangay during a handover is legitimate; so is two trucks sharing a
-    barangay MRF when 8 trucks x 4 barangays exceeds the 31 that exist. The
-    admin is told and decides.
+    active assignment -- a duplicate would make the route lists ambiguous and
+    double-count the collected load.
+  * one purok belongs to one tricycle route, and one MRF to one truck route,
+    so every household and every MRF has exactly one collector answerable
+    for it. The assign forms only offer what is still free.
 
 "Temporary Replacement" is an active status: while one is in force the
 replacement sees the route and the original does not (spec section 7).
+
+A stand-in drives the absent collector's own vehicle and works their puroks or
+MRFs, so a replacement shares all of that with the regular route it covers.
+Only two assignments of the same kind clash -- two regular routes always, two
+replacements when their dates overlap. While the replacement is in force the stand-in's account
+carries the route's barangay and vehicle; when it ends the account goes back
+to what it was (sync_replacement_accounts).
 """
 
 from config import Config
 from services import storage, timeutil
 from services.validation import ValidationError, Validator
 
-ACTIVE_STATUSES = ("Active", "Temporary Replacement")
+REPLACEMENT = "Temporary Replacement"
+ACTIVE_STATUSES = ("Active", REPLACEMENT)
 STATUS_CHOICES = ("Active", "Temporary Replacement", "Ended")
 
 TRICYCLE_COLLECTION = "assignments_tricycle"
@@ -72,6 +74,28 @@ def is_unavailable(user_id: str, on_date=None) -> bool:
     return False
 
 
+def absence_window(user_id: str, on_date=None) -> tuple[str, str] | None:
+    """
+    (first day, last day) of this collector's nearest absence that is running
+    or still to come, counting requests the same way is_unavailable() does --
+    Pending and Approved. None if they have nothing ahead.
+    """
+    from services import unavailable_service
+
+    if not user_id:
+        return None
+    day = timeutil.date_str(on_date or timeutil.today())
+    windows = []
+    for req in storage.find("unavailable_requests", user_id=user_id):
+        if req.get("status") not in unavailable_service.BLOCKING:
+            continue
+        start = req.get("affected_date")
+        end = req.get("unavailable_until") or start
+        if start and end >= day:
+            windows.append((start, end))
+    return min(windows) if windows else None
+
+
 def is_active(row: dict, on_date=None) -> bool:
     """
     Is this assignment in force?
@@ -88,6 +112,105 @@ def is_active(row: dict, on_date=None) -> bool:
     if until and until < timeutil.date_str(on_date or timeutil.today()):
         return False
     return True
+
+
+def _effective_display(row: dict) -> str:
+    """
+    The Effective From cell. A date only where it tells the admin something:
+    a Temporary Replacement (when the stand-in took over), or a handover set
+    for a future day (when it will happen -- the Scheduled badge beside it is
+    meaningless without one). A collector's own standing route shows a dash;
+    its start date is just the day the account was set up.
+    """
+    date = row.get("effective_date")
+    scheduled = bool(date and date > timeutil.today_str())
+    if row.get("status") != "Temporary Replacement" and not scheduled:
+        return "—"
+    return timeutil.display_date(date) if date else "Not set"
+
+
+def _until_display(row: dict) -> str:
+    """Replacement Until: only a replacement has one to show."""
+    if row.get("until_date"):
+        return timeutil.display_date(row["until_date"])
+    return "No end date" if row.get("status") == "Temporary Replacement" else "—"
+
+
+def in_force(row: dict, on_date=None) -> bool:
+    """Active and already started -- is_active() plus the start date."""
+    if not is_active(row, on_date):
+        return False
+    start = row.get("effective_date")
+    return not start or start <= timeutil.date_str(on_date or timeutil.today())
+
+
+def _fields(collection: str) -> tuple[str, str]:
+    """(who, vehicle) field names for an assignment collection."""
+    if collection == TRICYCLE_COLLECTION:
+        return "collector_id", "tricycle_code"
+    return "operator_id", "truck_code"
+
+
+def covering_replacement(collection: str, row: dict, on_date=None) -> dict | None:
+    """
+    The Temporary Replacement in force on this regular route's vehicle, if
+    any. While there is one, the stand-in works the route and the regular
+    holder does not.
+    """
+    if not row or row.get("status") == REPLACEMENT:
+        return None
+    _, vehicle = _fields(collection)
+    if not row.get(vehicle):
+        return None
+    for other in storage.read(collection):
+        if (other.get("id") != row.get("id") and other.get("status") == REPLACEMENT
+                and other.get(vehicle) == row[vehicle] and in_force(other, on_date)):
+            return other
+    return None
+
+
+def working_assignment(collection: str, user_id: str, on_date=None) -> dict | None:
+    """
+    The route this collector actually works on a date: in force, and not
+    handed to a stand-in for the day. Both collector portals read their route
+    from here, so an assignment set for next week does not show up early and
+    a collector on covered leave does not see the route the stand-in has.
+    """
+    if not user_id:
+        return None
+    who, _ = _fields(collection)
+    for row in storage.find(collection, **{who: user_id}):
+        if in_force(row, on_date) and not covering_replacement(collection, row, on_date):
+            return row
+    return None
+
+
+def vehicle_worker(collection: str, code: str, on_date=None) -> dict | None:
+    """
+    The assignment whose collector is driving this vehicle on a date: an
+    in-force replacement over the regular route it covers.
+    """
+    _, vehicle = _fields(collection)
+    regular = None
+    for row in storage.read(collection):
+        if row.get(vehicle) != code or not in_force(row, on_date):
+            continue
+        if row.get("status") == REPLACEMENT:
+            return row
+        regular = regular or row
+    return regular
+
+
+def regular_route(collection: str, user_id: str) -> dict | None:
+    """
+    A collector's own standing route -- what a replacement covering their
+    absence prefills from.
+    """
+    who, _ = _fields(collection)
+    for row in storage.find(collection, **{who: user_id}):
+        if row.get("status") == "Active" and is_active(row):
+            return row
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -121,13 +244,12 @@ def tricycle_listing(search: str = "", barangay: str = "", status: str = "",
             "username": user.get("username") or "—",
             "barangay_id": row.get("barangay_id"),
             "barangay": names.get(row.get("barangay_id")) or "—",
+            "puroks": row.get("purok_coverage") or [],
             "tricycle": row.get("tricycle_code") or "—",
             "effective_date": row.get("effective_date") or "",
-            "effective_display": (timeutil.display_date(row["effective_date"])
-                                  if row.get("effective_date") else "Not set"),
+            "effective_display": _effective_display(row),
             "until_date": row.get("until_date") or "",
-            "until_display": (timeutil.display_date(row["until_date"])
-                              if row.get("until_date") else "No end date"),
+            "until_display": _until_display(row),
             "expired": bool(row.get("until_date")
                             and row["until_date"] < timeutil.today_str()
                             and row.get("status") in ACTIVE_STATUSES),
@@ -171,6 +293,9 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
                             [u["id"] for u in storage.read("users")
                              if u.get("role") == "tricycle_collector"])
     barangay_id = v.choice("barangay_id", "Assigned Barangay", list(barangays))
+    # At least one purok, and only ones that exist in that barangay.
+    puroks = v.multi("purok_coverage", "Purok",
+                     (barangays.get(barangay_id) or {}).get("puroks") or [])
 
     from services import vehicle_service
     # Accept any in-service unit here; the clash check below produces the
@@ -199,33 +324,30 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
                 f"{barangays.get(clash.get('barangay_id'), {}).get('name', 'another barangay')}. "
                 f"End or edit that assignment first."))
 
-        unit_clash = _active_clash(TRICYCLE_COLLECTION, "tricycle_code", tricycle,
-                                   assignment_id)
+        unit_clash = _unit_clash(TRICYCLE_COLLECTION, tricycle, assignment_id,
+                                 status, effective_date, until_date)
         if unit_clash:
             holder = users.get(unit_clash.get("collector_id"), {}).get("full_name",
                                                                        "another collector")
-            v.fail("tricycle_code", f"{tricycle} is already assigned to {holder}.")
+            v.fail("tricycle_code", _unit_clash_message(tricycle, holder, unit_clash))
 
-    v.raise_if_invalid()
-
-    # Overlaps are legitimate during a handover, so they inform rather than
-    # block. With coverage now barangay-wide, sharing the barangay is the
-    # overlap -- there is no narrower unit left to compare.
-    if status in ACTIVE_STATUSES:
-        for other in storage.read(TRICYCLE_COLLECTION):
-            if other.get("id") == assignment_id or not is_active(other):
-                continue
+        for other in _clashing_rows(TRICYCLE_COLLECTION, assignment_id, status,
+                                    effective_date, until_date):
             if other.get("barangay_id") != barangay_id:
                 continue
-            name = users.get(other.get("collector_id"), {}).get("full_name",
-                                                                "another collector")
-            v.warn(f"{barangays.get(barangay_id, {}).get('name', 'That barangay')} is "
-                   f"also covered by {name} ({other.get('tricycle_code')}). "
-                   f"Both collectors will see the same properties.")
+            shared = [p for p in puroks if p in (other.get("purok_coverage") or [])]
+            if shared:
+                holder = users.get(other.get("collector_id"), {}).get(
+                    "full_name", "another collector")
+                v.fail("purok_coverage", _coverage_message(shared, holder, other))
+                break
+
+    v.raise_if_invalid()
 
     payload = {
         "collector_id": collector_id,
         "barangay_id": barangay_id,
+        "purok_coverage": puroks,
         "tricycle_code": tricycle,
         "effective_date": effective_date,
         "until_date": until_date,
@@ -240,7 +362,14 @@ def save_tricycle_assignment(form, assignment_id: str | None = None,
     else:
         record = storage.insert(TRICYCLE_COLLECTION, payload, actor)
 
-    _sync_collector_fields(collector_id, barangay_id, tricycle, actor)
+    if status == REPLACEMENT:
+        # The account follows the replacement while it is in force, and goes
+        # back afterwards -- not overwritten now for a cover that starts later.
+        _remember_account(TRICYCLE_COLLECTION, record, actor)
+        sync_replacement_accounts(actor)
+    else:
+        _sync_collector_fields(collector_id, barangay_id, tricycle, puroks, actor)
+        _settle_former_replacement(TRICYCLE_COLLECTION, record, actor)
 
     from services import triggers
     triggers.on_assignment_changed(record, collector_id, "tricycle", actor)
@@ -279,11 +408,9 @@ def truck_listing(search: str = "", status: str = "",
             "mrfs": [names.get(b) for b in covered if names.get(b)],
             "truck": row.get("truck_code") or "—",
             "effective_date": row.get("effective_date") or "",
-            "effective_display": (timeutil.display_date(row["effective_date"])
-                                  if row.get("effective_date") else "Not set"),
+            "effective_display": _effective_display(row),
             "until_date": row.get("until_date") or "",
-            "until_display": (timeutil.display_date(row["until_date"])
-                              if row.get("until_date") else "No end date"),
+            "until_display": _until_display(row),
             "expired": bool(row.get("until_date")
                             and row["until_date"] < timeutil.today_str()
                             and row.get("status") in ACTIVE_STATUSES),
@@ -381,26 +508,24 @@ def save_truck_assignment(form, assignment_id: str | None = None,
                    f"active assignment on {clash.get('truck_code')}. "
                    f"End or edit that assignment first.")
 
-        unit_clash = _active_clash(TRUCK_COLLECTION, "truck_code", truck, assignment_id)
+        unit_clash = _unit_clash(TRUCK_COLLECTION, truck, assignment_id,
+                                 status, effective_date, until_date)
         if unit_clash:
             holder = users.get(unit_clash.get("operator_id"), {}).get("full_name",
                                                                       "another operator")
-            v.fail("truck_code", f"{truck} is already assigned to {holder}.")
+            v.fail("truck_code", _unit_clash_message(truck, holder, unit_clash))
+
+        for other in _clashing_rows(TRUCK_COLLECTION, assignment_id, status,
+                                    effective_date, until_date):
+            shared = [b for b in covered if b in (other.get("covered_mrfs") or [])]
+            if shared:
+                holder = users.get(other.get("operator_id"), {}).get(
+                    "full_name", "another operator")
+                labels = [f"{barangays[b]['name']} MRF" for b in shared]
+                v.fail("covered_mrfs", _coverage_message(labels, holder, other))
+                break
 
     v.raise_if_invalid()
-
-    if status in ACTIVE_STATUSES:
-        for other in storage.read(TRUCK_COLLECTION):
-            if other.get("id") == assignment_id or not is_active(other):
-                continue
-            shared = set(other.get("covered_mrfs") or []) & set(covered)
-            if shared:
-                name = users.get(other.get("operator_id"), {}).get("full_name",
-                                                                   "another operator")
-                labels = sorted(barangays[b]["name"] for b in shared)
-                v.warn(f"{', '.join(labels)} is also covered by {name} "
-                       f"({other.get('truck_code')}). Both trucks will see it as "
-                       f"a pending pickup.")
 
     payload = {
         "operator_id": operator_id,
@@ -420,10 +545,15 @@ def save_truck_assignment(form, assignment_id: str | None = None,
     else:
         record = storage.insert(TRUCK_COLLECTION, payload, actor)
 
-    storage.update("users", operator_id, {
-        "assigned_vehicle": truck,
-        "assigned_barangays": covered,
-    }, actor)
+    if status == REPLACEMENT:
+        _remember_account(TRUCK_COLLECTION, record, actor)
+        sync_replacement_accounts(actor)
+    else:
+        storage.update("users", operator_id, {
+            "assigned_vehicle": truck,
+            "assigned_barangays": covered,
+        }, actor)
+        _settle_former_replacement(TRUCK_COLLECTION, record, actor)
 
     from services import triggers
     triggers.on_assignment_changed(record, operator_id, "truck", actor)
@@ -451,7 +581,10 @@ def get(collection: str, assignment_id: str) -> dict | None:
 def end_assignment(collection: str, assignment_id: str,
                    actor: str | None = None) -> dict | None:
     """Ending frees the collector and the vehicle without losing the history."""
-    return storage.update(collection, assignment_id, {"status": "Ended"}, actor)
+    record = storage.update(collection, assignment_id, {"status": "Ended"}, actor)
+    # A stand-in's account goes back to what it was the moment cover ends.
+    sync_replacement_accounts(actor)
+    return record
 
 
 def _read_until_date(v, status: str, effective_date):
@@ -488,20 +621,229 @@ def _active_clash(collection: str, field: str, value, exclude_id: str | None):
     return None
 
 
-def _sync_collector_fields(collector_id, barangay_id, vehicle, actor):
+def _unit_clash(collection: str, code, exclude_id: str | None, status: str,
+                start: str | None, until: str | None) -> dict | None:
+    """
+    Another assignment that cannot share this vehicle.
+
+    A replacement and the regular route it covers share one by design -- the
+    stand-in drives the absent collector's unit. Two regular routes clash
+    outright; two replacements clash only if their dates overlap, so cover
+    for next week can be lined up while this week's is still running.
+    """
+    if not code:
+        return None
+    _, vehicle = _fields(collection)
+    return next((row for row in _clashing_rows(collection, exclude_id, status, start, until)
+                 if row.get(vehicle) == code), None)
+
+
+def _clashing_rows(collection: str, exclude_id: str | None, status: str,
+                   start: str | None, until: str | None):
+    """
+    Active assignments that may not share a vehicle, a purok or an MRF with
+    one being saved: the same kind -- regular with regular, replacement with
+    replacement -- and, for two replacements, overlapping dates. A replacement
+    and the regular route it covers share everything by design.
+    """
+    for row in storage.read(collection):
+        if row.get("id") == exclude_id or not is_active(row):
+            continue
+        if (row.get("status") == REPLACEMENT) != (status == REPLACEMENT):
+            continue
+        if status == REPLACEMENT:
+            other_start = row.get("effective_date") or ""
+            other_until = row.get("until_date") or "9999-12-31"
+            if not ((start or "") <= other_until
+                    and other_start <= (until or "9999-12-31")):
+                continue
+        yield row
+
+
+def _coverage_message(names: list[str], holder: str, row: dict) -> str:
+    listed = ", ".join(names)
+    verb = "is" if len(names) == 1 else "are"
+    if row.get("status") == REPLACEMENT:
+        return (f"{listed} {verb} already covered by {holder} as a temporary "
+                f"replacement on overlapping dates.")
+    return f"{listed} {verb} already assigned to {holder}."
+
+
+def _route_absence(collection: str, row: dict) -> str:
+    """
+    For a regular route whose collector is unavailable and not yet covered,
+    a short note on when -- the routes a Temporary Replacement can take over.
+    Blank for every other route.
+    """
+    if row.get("status") != "Active" or not is_active(row):
+        return ""
+    who, vehicle = _fields(collection)
+    covered = any(r.get("status") == REPLACEMENT and is_active(r)
+                  and r.get(vehicle) == row.get(vehicle)
+                  for r in storage.read(collection))
+    window = None if covered else absence_window(row.get(who))
+    if not window:
+        return ""
+    start, end = (timeutil.display_date(d) for d in window)
+    return f"unavailable {start}" if start == end else f"unavailable {start} to {end}"
+
+
+def purok_options() -> dict[str, list[dict]]:
+    """
+    For the assign form: barangay id -> its puroks, each saying who holds it.
+    A purok on a regular route is not offered at all -- unless that route's
+    collector is unavailable, when it is offered for a Temporary Replacement
+    only. Replacement routes are left out: they borrow the puroks they cover.
+    """
+    users = {u["id"]: u.get("full_name") for u in storage.read("users")}
+    held = {}
+    for row in storage.read(TRICYCLE_COLLECTION):
+        if row.get("status") != "Active" or not is_active(row):
+            continue
+        absence = _route_absence(TRICYCLE_COLLECTION, row)
+        for purok in row.get("purok_coverage") or []:
+            held[(row.get("barangay_id"), purok)] = {
+                "holder": users.get(row.get("collector_id")) or "another collector",
+                "holder_id": row["id"], "absence": absence}
+
+    out = {}
+    for brgy in sorted(storage.read("barangays"), key=lambda b: b.get("number", 0)):
+        out[brgy["id"]] = [
+            {"name": purok, **held.get((brgy["id"], purok),
+                                       {"holder": "", "holder_id": "", "absence": ""})}
+            for purok in brgy.get("puroks") or []]
+    return out
+
+
+def mrf_options() -> dict[str, dict]:
+    """
+    For the truck forms: barangay id -> who holds its MRF on a regular route,
+    and, if that operator is unavailable and uncovered, when. Free MRFs are
+    absent from the map.
+    """
+    users = {u["id"]: u.get("full_name") for u in storage.read("users")}
+    out = {}
+    for row in storage.read(TRUCK_COLLECTION):
+        if row.get("status") != "Active" or not is_active(row):
+            continue
+        absence = _route_absence(TRUCK_COLLECTION, row)
+        for barangay_id in row.get("covered_mrfs") or []:
+            out[barangay_id] = {
+                "holder": users.get(row.get("operator_id")) or "another operator",
+                "holder_id": row["id"], "truck": row.get("truck_code"),
+                "absence": absence}
+    return out
+
+
+def _unit_clash_message(code: str, holder: str, row: dict) -> str:
+    if row.get("status") == REPLACEMENT:
+        return (f"{code} is already covered by {holder} as a temporary "
+                f"replacement on overlapping dates.")
+    return f"{code} is already assigned to {holder}."
+
+
+# What a replacement changes on the stand-in's account, and restores after.
+ACCOUNT_FIELDS = ("assigned_barangay", "assigned_barangays", "assigned_vehicle",
+                  "assigned_puroks", "assigned_purok")
+
+
+def _remember_account(collection: str, record: dict, actor) -> None:
+    """
+    Keep the stand-in's account as it was before this replacement, once, so
+    it can be put back when the cover ends. An edit that keeps the same
+    stand-in keeps the original snapshot; a new stand-in gets a fresh one.
+    """
+    who, _ = _fields(collection)
+    before = record.get("account_before") or {}
+    if before and before.get("user_id") == record.get(who):
+        return
+    user = storage.get("users", record.get(who)) or {}
+    storage.update(collection, record["id"], {
+        "account_before": {"user_id": record.get(who),
+                           **{f: user.get(f) for f in ACCOUNT_FIELDS}},
+        "account_applied": False,
+        "account_restored": False,
+    }, actor)
+
+
+def sync_replacement_accounts(actor=None, on_date=None) -> int:
+    """
+    Point each stand-in's account at the route they are covering while the
+    replacement is in force, and back to what it was once it is over.
+
+    The account's vehicle and barangay are what the collector's profile, the
+    live map and every recorded entry read, so they have to follow the cover.
+    Idempotent and cheap -- it rides the daily rollover hook, so a cover that
+    starts tomorrow is applied on the first request of tomorrow.
+    """
+    changed = 0
+    for collection in (TRICYCLE_COLLECTION, TRUCK_COLLECTION):
+        who, vehicle = _fields(collection)
+        for row in storage.read(collection):
+            before = row.get("account_before")
+            if not before:
+                continue
+            user_id = row.get(who)
+            if row.get("status") == REPLACEMENT and in_force(row, on_date):
+                if row.get("account_applied"):
+                    continue
+                if collection == TRICYCLE_COLLECTION:
+                    puroks = row.get("purok_coverage") or []
+                    fields = {"assigned_barangay": row.get("barangay_id"),
+                              "assigned_vehicle": row.get(vehicle),
+                              "assigned_puroks": puroks,
+                              "assigned_purok": puroks[0] if puroks else None}
+                else:
+                    fields = {"assigned_vehicle": row.get(vehicle),
+                              "assigned_barangays": row.get("covered_mrfs") or []}
+                storage.update("users", user_id, fields, actor)
+                storage.update(collection, row["id"], {"account_applied": True}, actor)
+                changed += 1
+            elif (not is_active(row, on_date) and row.get("account_applied")
+                  and not row.get("account_restored")):
+                if before.get("user_id") == user_id:
+                    storage.update("users", user_id,
+                                   {f: before.get(f) for f in ACCOUNT_FIELDS}, actor)
+                storage.update(collection, row["id"], {"account_restored": True}, actor)
+                changed += 1
+    return changed
+
+
+def _settle_former_replacement(collection: str, record: dict, actor) -> None:
+    """
+    A replacement edited into another status. Ended puts the stand-in's
+    account back; made permanent (Active), the route is theirs now and the
+    old snapshot is dropped instead.
+    """
+    if not record.get("account_before") or record.get("account_restored"):
+        return
+    if record.get("status") == "Ended":
+        sync_replacement_accounts(actor)
+    else:
+        storage.update(collection, record["id"], {"account_restored": True}, actor)
+
+
+def replacement_account_ids() -> set[str]:
+    """Accounts currently carrying a vehicle borrowed through a replacement."""
+    out = set()
+    for collection in (TRICYCLE_COLLECTION, TRUCK_COLLECTION):
+        who, _ = _fields(collection)
+        for row in storage.read(collection):
+            if row.get("account_applied") and not row.get("account_restored"):
+                out.add(row.get(who))
+    return out
+
+
+def _sync_collector_fields(collector_id, barangay_id, vehicle, puroks, actor):
     """
     Mirror the assignment onto the account, so the collector's own profile and
     sidebar show their current route without every page re-deriving it.
-
-    The purok fields are cleared rather than left alone: an account written
-    before coverage went barangay-wide would otherwise keep showing a purok
-    list that no longer scopes anything.
     """
     if not collector_id:
         return
     storage.update("users", collector_id, {
         "assigned_barangay": barangay_id,
         "assigned_vehicle": vehicle,
-        "assigned_puroks": [],
-        "assigned_purok": None,
+        "assigned_puroks": list(puroks or []),
+        "assigned_purok": puroks[0] if puroks else None,
     }, actor)

@@ -520,6 +520,15 @@
   }
 }
 
+/* A taken unit opened up for a Temporary Replacement (its collector is off):
+   picked out in the open list so it is not lost among the disabled ones.
+   Only takes effect once app.js enables it, when that status is chosen. */
+.field__select option.option--replaceable:enabled {
+  background: var(--tone-success-bg);
+  color: var(--tone-success-fg);
+  font-weight: 600;
+}
+
 /* Input with a leading icon (search) */
 .field--icon { position: relative; }
 .field--icon .icon {
@@ -572,6 +581,10 @@
   color: var(--fg-brand);
 }
 .pill:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A purok (or MRF) held by a collector who is unavailable: offered only for a
+   Temporary Replacement, and marked so it reads as someone else's route. */
+.pill--replaceable { border-color: var(--tone-success-bd); color: var(--tone-success-fg); background: var(--tone-success-bg); }
+.pill--replaceable:has(input:checked) { border-color: var(--tone-success-fg); box-shadow: inset 0 0 0 1px var(--tone-success-fg); }
 
 /* Password field with a reveal toggle.
 
@@ -1672,6 +1685,10 @@ body.is-notice-focused { overflow: hidden; }
 .mrf-picker__row + .mrf-picker__row { border-top: 1px solid var(--border-subtle); }
 .mrf-picker__row .choice { flex: 1; min-width: 0; }
 .mrf-picker__row--gap { background: var(--tone-warning-bg); }
+/* Another operator's MRF, offered for a Temporary Replacement because that
+   operator is unavailable. */
+.mrf-picker__row--replaceable { background: var(--tone-success-bg); color: var(--tone-success-fg); }
+.mrf-picker__empty { padding: var(--sp-3); }
 
 /* A time input needs far less room than a text field. */
 .field__input--sm {

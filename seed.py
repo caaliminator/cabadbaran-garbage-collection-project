@@ -263,19 +263,26 @@ def seed_geo_placeholders() -> list[str]:
 # Entry point
 # ---------------------------------------------------------------------------
 
-DEMO_ACCOUNTS = [
-    {"username": "brgy_admin", "full_name": "Barangay Admin (demo)",
-     "role": "barangay_admin", "assigned_barangay": "brgy-16"},
-    {"username": "tri_collector", "full_name": "Tricycle Collector (demo)",
+# Sample data reads like a real city's: people's names and phone numbers, never
+# "demo" or "test", which would follow every record onto every screen. The
+# names match tools/make_demo_day.py's lists at the same positions, so these
+# three accounts are the Poblacion 1 / TRK-01 members of the same cast.
+SAMPLE_ACCOUNTS = [
+    {"username": "brgy_admin", "full_name": "Rosario Pagaran",
+     "role": "barangay_admin", "assigned_barangay": "brgy-16",
+     "contact_number": "09175820316"},
+    {"username": "tri_collector", "full_name": "Perla Quijano",
      "role": "tricycle_collector", "assigned_barangay": "brgy-16",
-     "assigned_vehicle": "TRI-16", "assigned_purok": "Purok 1"},
-    {"username": "truck_collector", "full_name": "Truck Collector (demo)",
+     "assigned_vehicle": "TRI-16", "assigned_purok": "Purok 1",
+     "contact_number": "09284410716"},
+    {"username": "truck_collector", "full_name": "Alfredo Marasigan",
      "role": "truck_collector", "assigned_vehicle": "TRK-01",
-     "assigned_barangays": ["brgy-01", "brgy-02", "brgy-03", "brgy-04"]},
+     "assigned_barangays": ["brgy-01", "brgy-02", "brgy-03", "brgy-04"],
+     "contact_number": "09193370201"},
 ]
 
 
-def seed_demo_accounts() -> list[tuple[str, str]]:
+def seed_sample_accounts() -> list[tuple[str, str]]:
     """
     One account per non-admin role, for walking through the app before User
     Management exists (Phase 2). Opt-in via `python seed.py --demo`.
@@ -284,7 +291,7 @@ def seed_demo_accounts() -> list[tuple[str, str]]:
     and on a host whose filesystem is rebuilt on each restart.
     """
     made = []
-    for spec in DEMO_ACCOUNTS:
+    for spec in SAMPLE_ACCOUNTS:
         if storage.find_one("users", username=spec["username"]):
             continue
         password = seed_password()
@@ -297,7 +304,7 @@ def seed_demo_accounts() -> list[tuple[str, str]]:
             "assigned_barangays": spec.get("assigned_barangays", []),
             "assigned_vehicle": spec.get("assigned_vehicle"),
             "assigned_purok": spec.get("assigned_purok"),
-            "contact_number": "",
+            "contact_number": spec.get("contact_number", ""),
             "status": "Active",
             "must_change_password": False,
         }, SEED_ACTOR)
@@ -305,7 +312,7 @@ def seed_demo_accounts() -> list[tuple[str, str]]:
     return made
 
 
-DEMO_PROPERTIES = [
+SAMPLE_PROPERTIES = [
     ("Nica Abayon", "House", "Purok 1", "None Composting"),
     ("Iliana Dwane", "House", "Purok 1", "Composting"),
     ("Marites Ocampo", "House", "Purok 1", ""),
@@ -317,13 +324,13 @@ DEMO_PROPERTIES = [
 ]
 
 
-def seed_demo_properties(barangay_id: str) -> int:
+def seed_sample_properties(barangay_id: str) -> int:
     """
     A handful of households so the collector route is walkable before the
     barangay admin's Property List exists (Phase 5). Opt-in via --demo.
     """
     made = 0
-    for owner, kind, purok, tag in DEMO_PROPERTIES:
+    for owner, kind, purok, tag in SAMPLE_PROPERTIES:
         record = {"owner_name": owner, "type": kind, "barangay_id": barangay_id,
                   "purok": purok, "tag": tag, "note": ""}
         _, created = storage.upsert_by("properties", "owner_name", record, SEED_ACTOR)
@@ -331,8 +338,8 @@ def seed_demo_properties(barangay_id: str) -> int:
     return made
 
 
-def seed_demo_assignments() -> int:
-    """Give the demo collectors a route, so their apps have something to show."""
+def seed_sample_assignments() -> int:
+    """Give the sample collectors a route, so their apps have something to show."""
     made = 0
     tri = storage.find_one("users", username="tri_collector")
     if tri and not storage.find_one("assignments_tricycle", collector_id=tri["id"]):
@@ -341,7 +348,7 @@ def seed_demo_assignments() -> int:
             "barangay_id": tri.get("assigned_barangay") or barangay_id(16),
             "purok_coverage": ["Purok 1", "Purok 2", "Purok 3"],
             "tricycle_code": tri.get("assigned_vehicle") or "TRI-16",
-            "status": "Active", "note": "Demo assignment",
+            "status": "Active", "note": "",
         }, SEED_ACTOR)
         storage.update("users", tri["id"],
                        {"assigned_puroks": ["Purok 1", "Purok 2", "Purok 3"],
@@ -356,7 +363,7 @@ def seed_demo_assignments() -> int:
             "truck_code": trk.get("assigned_vehicle") or "TRK-01",
             "covered_mrfs": covered,
             "planned_pickup_times": {covered[0]: "09:00"} if covered else {},
-            "status": "Active", "note": "Demo assignment",
+            "status": "Active", "note": "",
         }, SEED_ACTOR)
         made += 1
     return made
@@ -392,26 +399,26 @@ def run(demo: bool = False) -> int:
         print("\n  City Hall Admin account already present, left untouched")
 
     if demo:
-        made = seed_demo_accounts()
+        made = seed_sample_accounts()
         if made and os.environ.get("SEED_DEMO_PASSWORD"):
             # Don't echo a password that is already in the host's environment
             # -- it would sit in the build log for anyone with dashboard access.
-            print("\n  Demo accounts created (password from SEED_DEMO_PASSWORD):")
+            print("\n  Sample accounts created (password from SEED_DEMO_PASSWORD):")
             for username, _ in made:
                 print(f"    {username}")
         elif made:
-            print("\n  Demo accounts created:")
+            print("\n  Sample accounts created:")
             for username, password in made:
                 print(f"    {username:<16} {password}")
         else:
-            print("\n  Demo accounts already present, left untouched")
+            print("\n  Sample accounts already present, left untouched")
 
         tri = storage.find_one("users", username="tri_collector")
         home = (tri or {}).get("assigned_barangay") or barangay_id(16)
-        props = seed_demo_properties(home)
-        routes = seed_demo_assignments()
-        print(f"  Demo properties  {props:>3} created")
-        print(f"  Demo assignments {routes:>3} created")
+        props = seed_sample_properties(home)
+        routes = seed_sample_assignments()
+        print(f"  Sample properties  {props:>3} created")
+        print(f"  Sample assignments {routes:>3} created")
 
     Path(Config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     print(f"\nDone. Run `python app.py` to start the app.")

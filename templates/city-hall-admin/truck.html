@@ -100,12 +100,25 @@
           <select class="field__select" id="truck_code" name="truck_code" required
                   aria-describedby="truck-hint">
             <option value="">Select truck…</option>
-            {{ assign_options(trucks, 'code', 'code') }}
+            {{ assign_options(trucks, 'code', 'code', selected=covered.truck_code) }}
           </select>
           <p class="field__hint" id="truck-hint">
             {% set free = trucks | rejectattr('assigned') | list | length %}
-            {{ free }} of {{ counts.max_trucks }} units free. Units already on a
-            route are listed but cannot be picked.
+            {% set open = trucks | selectattr('replaceable') | list | length %}
+            <span data-hint-when="regular">
+              {{ free }} of {{ counts.max_trucks }} units free. Units already on
+              a route are listed but cannot be picked.
+            </span>
+            <span data-hint-when="replacement" hidden>
+              {% if open %}
+                {{ open }} truck{{ '' if open == 1 else 's' }} whose operator is
+                unavailable can be taken, highlighted at the top of the list --
+                the stand-in drives the absent operator's truck.
+              {% else %}
+                No operator with a truck is unavailable right now, so there is
+                no truck to cover{% if free %} beyond the {{ free }} free one{{ '' if free == 1 else 's' }}{% endif %}.
+              {% endif %}
+            </span>
           </p>
         </div>
 
@@ -155,27 +168,39 @@
           <span class="sr-only">(required)</span>
         </legend>
         <p class="field__hint">
-          Tick each barangay MRF this truck collects from, and optionally the
-          planned pickup time — residents get a reminder
-          {{ config.ARRIVAL_REMINDER_HOURS }} hours before it.
+          Tick each barangay MRF this truck collects from -- at least one -- and
+          optionally the planned pickup time; residents get a reminder
+          {{ config.ARRIVAL_REMINDER_HOURS }} hours before it. Only MRFs no
+          truck covers yet are listed. For a Temporary Replacement, the MRFs of
+          an operator who is unavailable are listed too, highlighted.
         </p>
 
-        <div class="mrf-picker" data-mrf-picker>
+        <div class="mrf-picker" data-mrf-picker data-mrf-filter>
           {% for value, label in barangays %}
-            {% set is_uncovered = value in counts.uncovered %}
-            <div class="mrf-picker__row {% if is_uncovered %}mrf-picker__row--gap{% endif %}">
+            {% set held = mrf_map.get(value) %}
+            {# A MRF on another truck's route is not offered -- unless that
+               operator is unavailable, and then only for a replacement. #}
+            {% if not held or held.absence %}
+            <div class="mrf-picker__row{% if held %} mrf-picker__row--replaceable{% endif %}"
+                 data-mrf-row{% if held %} data-holder="{{ held.holder_id }}" data-replace-only{% endif %}>
               <label class="choice">
-                <input type="checkbox" name="covered_mrfs" value="{{ value }}">
-                <span>{{ label }}{% if is_uncovered %}
-                  <span class="badge badge--warning">Uncovered</span>{% endif %}</span>
+                <input type="checkbox" name="covered_mrfs" value="{{ value }}"
+                       {% if value in (covered.covered_mrfs or []) %}checked{% endif %}>
+                <span>{{ label }}{% if held %}
+                  <span class="text-xs">· {{ held.truck }}, {{ held.holder }}, {{ held.absence }}</span>{% endif %}</span>
               </label>
               <label class="sr-only" for="planned_time__{{ value }}">
                 Planned pickup time for {{ label }}
               </label>
               <input class="field__input field__input--sm" type="time"
-                     id="planned_time__{{ value }}" name="planned_time__{{ value }}">
+                     id="planned_time__{{ value }}" name="planned_time__{{ value }}"
+                     value="{{ (covered.planned_pickup_times or {}).get(value, '') }}">
             </div>
+            {% endif %}
           {% endfor %}
+          <p class="text-sm muted mrf-picker__empty" data-mrf-empty hidden>
+            Every barangay MRF already has a truck.
+          </p>
         </div>
       </fieldset>
 
@@ -381,12 +406,19 @@
 
       <fieldset class="field" style="border:0;padding:0;margin:0">
         <legend class="field__label">Covered Barangay MRFs</legend>
-        <div class="mrf-picker" data-fill-checks="mrfs">
+        <p class="field__hint">
+          This route's own MRFs and the ones no truck covers yet.
+        </p>
+        <div class="mrf-picker" data-fill-checks="mrfs" data-mrf-filter>
           {% for value, label in barangays %}
-            <div class="mrf-picker__row">
+            {% set held = mrf_map.get(value) %}
+            <div class="mrf-picker__row{% if held and held.absence %} mrf-picker__row--replaceable{% endif %}"
+                 data-mrf-row{% if held %} data-holder="{{ held.holder_id }}"{% endif %}
+                 {% if held and held.absence %} data-replace-only{% endif %}>
               <label class="choice">
                 <input type="checkbox" name="covered_mrfs" value="{{ value }}">
-                <span>{{ label }}</span>
+                <span>{{ label }}{% if held and held.absence %}
+                  <span class="text-xs">· {{ held.truck }}, {{ held.holder }}, {{ held.absence }}</span>{% endif %}</span>
               </label>
               <label class="sr-only" for="edit_planned_time__{{ value }}">
                 Planned pickup time for {{ label }}
@@ -395,6 +427,9 @@
                      id="edit_planned_time__{{ value }}" name="planned_time__{{ value }}">
             </div>
           {% endfor %}
+          <p class="text-sm muted mrf-picker__empty" data-mrf-empty hidden>
+            Every barangay MRF already has a truck.
+          </p>
         </div>
       </fieldset>
 

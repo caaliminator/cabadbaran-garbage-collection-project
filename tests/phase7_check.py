@@ -79,6 +79,7 @@ ok("a city admin gets the city room", "role:city_admin" in crooms)
 ok("and every barangay", sum(1 for r in crooms if r.startswith("barangay:")) == 31)
 
 assignment_service.save_tricycle_assignment(Form({
+    "purok_coverage": [f"Purok {n}" for n in range(1, 8)],  # the whole barangay
     "collector_id": col["id"], "barangay_id": B1,
     "tricycle_code": "TRI-01", "effective_date": timeutil.today_str(),
     "status": "Active"}), None, ADMIN)

@@ -82,4 +82,9 @@ def run(actor: str = ACTOR, today=None) -> dict:
         duty_service.set_duty(user["id"], False)
         ended.append(user["id"])
 
+    # Replacements are dated too, but the stand-in's account is not: point it
+    # at a cover that has started, and back home from one that has finished.
+    from services import assignment_service
+    assignment_service.sync_replacement_accounts(actor, today)
+
     return {"duty_ended": ended}

@@ -285,6 +285,11 @@
               cb.checked = wanted.includes(cb.value);
             });
           });
+          // For pickers that hide choices by who holds them (CoveragePicker):
+          // they need the ticks in place to know what this row already has.
+          modal.querySelectorAll('form').forEach((f) =>
+            f.dispatchEvent(new CustomEvent('gcts:checked')));
+          if (modal.matches('form')) modal.dispatchEvent(new CustomEvent('gcts:checked'));
 
           this.open(modal);
         });
@@ -967,8 +972,9 @@
     toggle(form, name, show) {
       form.querySelectorAll(`[data-role-field="${name}"]`).forEach((wrap) => {
         wrap.hidden = !show;
+        const optional = wrap.hasAttribute('data-role-optional');
         wrap.querySelectorAll('select, input').forEach((input) => {
-          input.required = show;
+          input.required = show && !optional;
           input.disabled = !show;   // keeps a hidden field out of the payload
         });
       });
@@ -1136,11 +1142,114 @@
     apply(field, status) {
       const on = status === this.TEMP;
       field.hidden = !on;
+
+      // A stand-in drives the absent collector's own vehicle, so the units
+      // whose collector is unavailable become pickable for a replacement --
+      // and only then. The hint under the list says which case applies.
+      const form = field.closest('form');
+      if (form) {
+        $$('option[data-replaceable]', form).forEach((option) => {
+          option.disabled = !on && !option.selected;
+        });
+        $$('[data-hint-when]', form).forEach((hint) => {
+          hint.hidden = (hint.dataset.hintWhen === 'replacement') !== on;
+        });
+      }
+
       const input = field.querySelector('input');
       if (!input) return;
       input.required = on;
       // A hidden date must not block submission with a stale value.
       if (!on) input.setCustomValidity('');
+    },
+  };
+
+  /* ======================================================================
+     COVERAGE PICKERS -- puroks and MRFs, showing only what is free
+
+     A purok belongs to one tricycle route and an MRF to one truck route, so
+     the assign forms only list the ones still free. Two exceptions: a
+     Temporary Replacement may take the puroks or MRFs of a collector who is
+     unavailable (marked data-replace-only, highlighted), and an edit dialog
+     always shows the route's own. A hidden choice is unticked and disabled
+     so it is never submitted. The server enforces all of it again.
+     ====================================================================== */
+
+  const CoveragePicker = {
+    TEMP: 'Temporary Replacement',
+
+    replacing(form) {
+      const status = form.querySelector('[name="status"]:checked')
+        || form.querySelector('select[name="status"]');
+      return !!status && status.value === this.TEMP;
+    },
+
+    show(item, on) {
+      item.hidden = !on;
+      item.querySelectorAll('input').forEach((input) => {
+        input.disabled = !on;
+        if (!on && input.type === 'checkbox') input.checked = false;
+      });
+    },
+
+    init() {
+      $$('[data-purok-picker]').forEach((picker) => {
+        const form = picker.closest('form');
+        const barangay = form && form.querySelector('select[name="barangay_id"]');
+        if (!barangay) return;
+        const sync = () => {
+          const on = this.replacing(form);
+          $$('[data-purok-group]', picker).forEach((group) => {
+            const here = group.dataset.purokGroup === barangay.value;
+            group.hidden = !here;
+            let shown = 0;
+            $$('[data-purok]', group).forEach((item) => {
+              const visible = here && (!item.hasAttribute('data-replace-only') || on);
+              this.show(item, visible);
+              if (visible) shown += 1;
+            });
+            const empty = $('[data-purok-empty]', group);
+            if (empty) empty.hidden = shown > 0;
+          });
+          const choose = $('[data-purok-choose]', picker);
+          if (choose) choose.hidden = !!barangay.value;
+        };
+        barangay.addEventListener('change', sync);
+        form.addEventListener('change', (e) => { if (e.target.name === 'status') sync(); });
+        form.addEventListener('gcts:checked', sync);
+        sync();
+      });
+
+      $$('[data-mrf-filter]').forEach((picker) => {
+        const form = picker.closest('form');
+        if (!form) return;
+        // Ticked when the form opened -- prefilled from a leave request, or
+        // the row being edited -- stays visible whoever holds it.
+        const remember = () => {
+          $$('[data-mrf-row]', picker).forEach((row) => {
+            const cb = $('input[type="checkbox"]', row);
+            row.dataset.keep = cb && cb.checked ? '1' : '';
+          });
+        };
+        const sync = () => {
+          const on = this.replacing(form);
+          const own = ($('input[name="id"]', form) || {}).value || '';
+          let shown = 0;
+          $$('[data-mrf-row]', picker).forEach((row) => {
+            const holder = row.dataset.holder || '';
+            const visible = !holder || holder === own || row.dataset.keep === '1'
+              || (on && row.hasAttribute('data-replace-only'));
+            this.show(row, visible);
+            if (visible) shown += 1;
+          });
+          const empty = $('[data-mrf-empty]', picker);
+          if (empty) empty.hidden = shown > 0;
+        };
+        form.addEventListener('change', (e) => { if (e.target.name === 'status') sync(); });
+        form.addEventListener('gcts:checked', () => { remember(); sync(); });
+        remember();
+        sync();
+      });
     },
   };
 
@@ -1234,6 +1343,7 @@
     ReportForm.init();
     DateField.init();
     UntilField.init();
+    CoveragePicker.init();
   }
 
   if (document.readyState === 'loading') {

@@ -6,8 +6,11 @@ lives here are the rules that must hold regardless of who is calling:
 
   * usernames are unique, case-insensitively
   * the required fields depend on the role -- a barangay admin needs a
-    barangay, a collector needs a barangay and a vehicle of the matching type
-  * a vehicle belongs to at most one account
+    barangay, a tricycle collector needs a barangay; a collector's vehicle
+    must be of the matching type, and may be left out for a relief collector
+    who drives whichever unit they are covering
+  * a vehicle belongs to at most one account (a stand-in borrowing one for a
+    replacement aside)
   * the city cannot be left without an active City Hall Admin, and nobody can
     delete or deactivate themselves out of the building
 """
@@ -44,9 +47,17 @@ def vehicle_options(role: str | None = None, including: str | None = None):
 
 
 def vehicles_held(exclude_user: str | None = None) -> set[str]:
-    """Vehicle codes already attached to an account."""
+    """
+    Vehicle codes already attached to an account. A stand-in carrying the
+    absent collector's unit for the length of a replacement does not count:
+    that unit still belongs to its regular holder.
+    """
+    from services import assignment_service
+
+    borrowed = assignment_service.replacement_account_ids()
     return {u["assigned_vehicle"] for u in storage.read("users")
-            if u.get("assigned_vehicle") and u.get("id") != exclude_user}
+            if u.get("assigned_vehicle") and u.get("id") != exclude_user
+            and u.get("id") not in borrowed}
 
 
 # ---------------------------------------------------------------------------
@@ -192,11 +203,16 @@ def _validate(form, existing: dict | None = None) -> Validator:
 
     vehicle = str(form.get("assigned_vehicle", "") or "").strip().upper()
     wanted_type = ROLE_NEEDS_VEHICLE.get(role)
+    # The account a stand-in is carrying for a replacement keeps that unit
+    # through an edit; it goes back automatically when the cover ends.
+    from services import assignment_service
+    borrowing = bool(existing and vehicle == existing.get("assigned_vehicle")
+                     and existing["id"] in assignment_service.replacement_account_ids())
+
     if wanted_type:
-        if not vehicle:
-            v.fail("assigned_vehicle",
-                   f"{ROLES[role]['label']} accounts must have an assigned vehicle.")
-        else:
+        # No vehicle is a relief collector: they drive the unit of whoever
+        # they are covering, which the replacement assignment supplies.
+        if vehicle and not borrowing:
             unit = vehicle_service.by_code(vehicle)
             if not unit:
                 v.fail("assigned_vehicle", f"{vehicle} is not in the vehicle registry.")

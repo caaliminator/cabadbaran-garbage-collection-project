@@ -284,6 +284,18 @@ def _replacing(kind: str):
     return row if row.get("role") == wanted else None
 
 
+def _covered_route(kind: str, replacing: dict | None) -> dict:
+    """
+    The absent collector's own route, so the replacement form opens on their
+    barangay (or MRFs) and their vehicle -- the stand-in drives it.
+    """
+    if not replacing:
+        return {}
+    collection = (assignment_service.TRICYCLE_COLLECTION if kind == "tricycle"
+                  else assignment_service.TRUCK_COLLECTION)
+    return assignment_service.regular_route(collection, replacing.get("user_id")) or {}
+
+
 @city_bp.route("/tricycle", methods=["GET", "POST"])
 @role_required("city_admin")
 def tricycle():
@@ -338,9 +350,11 @@ def tricycle():
         collectors=user_service.collectors("tricycle_collector"),
         barangays=user_service.barangay_options(),
         tricycles=vehicle_service.options(vehicle_service.TRICYCLE),
+        purok_map=assignment_service.purok_options(),
         registry=vehicle_service.with_status(vehicle_service.TRICYCLE),
         statuses=assignment_service.STATUS_CHOICES,
         replacing=_replacing("tricycle"),
+        covered=_covered_route("tricycle", _replacing("tricycle")),
     )
 
 
@@ -400,9 +414,11 @@ def truck():
         operators=user_service.collectors("truck_collector"),
         barangays=user_service.barangay_options(),
         trucks=vehicle_service.options(vehicle_service.TRUCK),
+        mrf_map=assignment_service.mrf_options(),
         registry=vehicle_service.with_status(vehicle_service.TRUCK),
         statuses=assignment_service.STATUS_CHOICES,
         replacing=_replacing("truck"),
+        covered=_covered_route("truck", _replacing("truck")),
     )
 
 
@@ -510,7 +526,8 @@ def property():
     for row in rows:
         row["barangay"] = names.get(row.get("barangay_id"), "—")
         row["collector"] = users.get((row["entry"] or {}).get("collector_id")) or "—"
-        row["assigned_tricycle"] = coverage.get(row.get("barangay_id"), "Unassigned")
+        row["assigned_tricycle"] = (coverage.get((row.get("barangay_id"), row.get("purok")))
+                                    or coverage.get(row.get("barangay_id"), "Unassigned"))
 
     counts = collection_service.counts(property_service.listing(), date)
 
@@ -541,12 +558,20 @@ def property():
 
 
 def _tricycle_coverage() -> dict:
-    """barangay -> the tricycle covering it, from active assignments."""
+    """
+    (barangay, purok) -> the tricycle covering that purok, from regular active
+    assignments; a bare barangay key for an older assignment saved without
+    puroks, which still covers its whole barangay.
+    """
     coverage = {}
     for row in storage.read(assignment_service.TRICYCLE_COLLECTION):
-        if not assignment_service.is_active(row):
+        if (row.get("status") != "Active" or not assignment_service.is_active(row)
+                or not row.get("barangay_id")):
             continue
-        if row.get("barangay_id"):
+        puroks = row.get("purok_coverage") or []
+        for purok in puroks:
+            coverage[(row["barangay_id"], purok)] = row.get("tricycle_code")
+        if not puroks:
             coverage[row["barangay_id"]] = row.get("tricycle_code")
     return coverage
 

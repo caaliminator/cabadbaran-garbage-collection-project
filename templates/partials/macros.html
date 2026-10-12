@@ -19,9 +19,14 @@
 
 
 {# ---- Status badge ------------------------------------------------------ #}
+{# Labels too long for a table's Status column get a short form on the badge;
+   the full status stays the tooltip and what a screen reader hears. #}
 {% macro status(label) %}
-<span class="badge badge--{{ label|tone }}">
-  <span class="dot" aria-hidden="true"></span>{{ label }}
+{% set short = {'Temporary Replacement': 'Temporary'}.get(label) %}
+<span class="badge badge--{{ label|tone }}"{% if short %} title="{{ label }}"{% endif %}>
+  <span class="dot" aria-hidden="true"></span>
+  {%- if short %}<span aria-hidden="true">{{ short }}</span><span class="sr-only">{{ label }}</span>
+  {%- else %}{{ label }}{% endif %}
 </span>
 {% endmacro %}
 
@@ -124,13 +129,21 @@
    `rows` is a list of dicts carrying `assigned` and `assigned_to`; `value`
    and `text` name the fields to read for each option.
    ---------------------------------------------------------------------- #}
-{% macro assign_options(rows, value, text, placeholder=None, sub=None) %}
+{% macro assign_options(rows, value, text, placeholder=None, sub=None, selected=None) %}
   {% if placeholder %}<option value="">{{ placeholder }}</option>{% endif %}
   {% for r in rows %}
-    <option value="{{ r[value] }}" {% if r.assigned %}disabled{% endif %}>
+    {# A unit whose collector is unavailable can still go to a Temporary
+       Replacement -- the stand-in drives it. UntilField in app.js enables
+       just those options when that status is picked. #}
+    {% set chosen = selected and r[value] == selected %}
+    <option value="{{ r[value] }}"
+            {% if r.assigned and not chosen %}disabled{% endif %}
+            {% if chosen %}selected{% endif %}
+            {% if r.replaceable %}data-replaceable class="option--replaceable"{% endif %}>
       {{ r[text] }}{% if sub and r[sub] %} ({{ r[sub] }}){% endif %}
       —
       {%- if r.assigned %} Assigned{% if r.assigned_to %} to {{ r.assigned_to }}{% endif %}
+        {%- if r.absence %} · {{ r.absence }}, free for a replacement{% endif %}
       {%- else %} Not yet assigned{% endif %}
     </option>
   {% endfor %}

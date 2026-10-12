@@ -95,7 +95,7 @@ def proof_count() -> int:
 def plan() -> dict:
     """What a run would remove, without removing any of it."""
     counts = {name: storage.count(name) for name in WIPE}
-    counts["users (demo accounts)"] = len(demo_accounts())
+    counts["users (sample accounts)"] = len(demo_accounts())
     counts["image proofs"] = proof_count()
     return counts
 

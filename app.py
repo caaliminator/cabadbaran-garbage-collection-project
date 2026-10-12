@@ -36,9 +36,11 @@ socketio = SocketIO(async_mode="threading", cors_allowed_origins=[],
                     logger=False, engineio_logger=False)
 
 
-def _autoseed() -> None:
+def _autoseed() -> bool:
     """
     Seed the store on startup when it is empty, so a local run has logins.
+    Returns whether it seeded, so the sample activity is only added to a store
+    that was just created.
 
     The deploy never hits this: render.yaml runs `seed.py --demo` in its start
     command, because the free plan wipes the filesystem on every restart. A
@@ -50,7 +52,7 @@ def _autoseed() -> None:
     and never touches one that has records in it.
     """
     if storage.count("users"):
-        return
+        return False
 
     import seed
 
@@ -58,11 +60,32 @@ def _autoseed() -> None:
           "(set AUTO_SEED=0 to skip).")
     try:
         seed.run(demo=True)
+        return True
     except Exception:
         # A seed that fails must not stop the app from starting: the login
         # page still needs to render so the failure is readable, and
         # `python seed.py --demo` can be run by hand to see the whole error.
         logging.getLogger(__name__).exception("Automatic seeding failed")
+        return False
+
+
+def _autoactivity() -> None:
+    """
+    Give a just-seeded store its full cast and three weeks of activity.
+
+    seed.py alone makes one account per role, so a local run had a single
+    barangay admin and a single collector for a 31-barangay city, and every
+    screen but Poblacion 1's was empty. render.yaml runs make_demo_day.py
+    after the seed for that reason; this is the local equivalent. Runs after
+    _autogeo, because the generated GPS points are placed from the map data.
+    """
+    try:
+        from tools import make_demo_day
+
+        make_demo_day.main([])
+    except Exception:
+        # Empty dashboards are a bad first look, not a broken app.
+        logging.getLogger(__name__).exception("Automatic sample activity failed")
 
 
 def _autogeo() -> None:
@@ -120,8 +143,10 @@ def create_app():
     # shapes on it. Both are off in production, where the host does this in
     # its start command; AUTO_SEED=0 disables them, AUTO_SEED=1 forces them.
     if os.environ.get("AUTO_SEED", "0" if config.IS_PRODUCTION else "1") == "1":
-        _autoseed()
+        seeded = _autoseed()
         _autogeo()
+        if seeded:
+            _autoactivity()
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(city_bp, url_prefix="/city")

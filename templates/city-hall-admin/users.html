@@ -39,11 +39,10 @@
                   placeholder='Select barangay…', id='assigned_barangay') }}
       </div>
 
-      <div data-role-field="vehicle" hidden>
+      <div data-role-field="vehicle" data-role-optional hidden>
         <div class="field">
           <label class="field__label" for="assigned_vehicle">
-            Assigned Vehicle<span class="field__req" aria-hidden="true">*</span>
-            <span class="sr-only">(required)</span>
+            Assigned Vehicle <span class="muted">(optional)</span>
           </label>
           <select class="field__select" id="assigned_vehicle" name="assigned_vehicle"
                   aria-describedby="vehicle-hint">
@@ -57,6 +56,8 @@
           </select>
           <p class="field__hint" id="vehicle-hint">
             Only units that are registered and not already assigned appear here.
+            Leave it blank for a relief collector -- they drive the unit of
+            whoever they are covering.
           </p>
         </div>
       </div>
@@ -282,9 +283,9 @@
                     placeholder='Select barangay…', id='edit_assigned_barangay') }}
         </div>
 
-        <div data-role-field="vehicle" hidden>
+        <div data-role-field="vehicle" data-role-optional hidden>
           <div class="field">
-            <label class="field__label" for="edit_assigned_vehicle">Assigned Vehicle</label>
+            <label class="field__label" for="edit_assigned_vehicle">Assigned Vehicle <span class="muted">(optional)</span></label>
             <select class="field__select" id="edit_assigned_vehicle" name="assigned_vehicle">
               <option value="">Select vehicle…</option>
               <optgroup label="Tricycles" data-vehicle-group="tricycle_collector">

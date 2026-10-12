@@ -14,7 +14,7 @@ is deleted. The stored field only distinguishes inactive from in-service.
 """
 
 from config import Config
-from services import storage
+from services import storage, timeutil
 from services.validation import VEHICLE_RE, ValidationError
 
 TRICYCLE = "tricycle"
@@ -85,6 +85,7 @@ def options(vehicle_type: str, including: str | None = None) -> list[dict]:
     unselectable, answers "where is TRI-05?" without letting anyone pick it.
     """
     holders = _holders()
+    replaceable = replaceable_codes()
     out = []
     for vehicle in all_vehicles(vehicle_type):
         if vehicle.get("status") == "inactive":
@@ -92,8 +93,13 @@ def options(vehicle_type: str, including: str | None = None) -> list[dict]:
         code = vehicle["code"]
         taken = code in holders and code != including
         out.append({"code": code, "assigned": taken,
-                    "assigned_to": holders.get(code, "") if taken else ""})
-    return sorted(out, key=lambda v: (v["assigned"], v["code"]))
+                    "assigned_to": holders.get(code, "") if taken else "",
+                    # Pickable after all when Status is Temporary Replacement:
+                    # its collector is off, and the stand-in will drive it.
+                    "replaceable": taken and code in replaceable,
+                    "absence": replaceable.get(code, "") if taken else ""})
+    # Free units first, then the ones a replacement can take, then the rest.
+    return sorted(out, key=lambda v: (v["assigned"], not v["replaceable"], v["code"]))
 
 
 def _holders() -> dict[str, str]:
@@ -108,7 +114,44 @@ def _holders() -> dict[str, str]:
         for row in storage.read(collection):
             if not assignment_service.is_active(row) or not row.get(code_field):
                 continue
+            # A unit shared with a stand-in is labelled by its regular holder:
+            # that is whose route it is, and who it goes back to.
+            if (row.get("status") == assignment_service.REPLACEMENT
+                    and row[code_field] in out):
+                continue
             out[row[code_field]] = users.get(row.get(who_field)) or "another collector"
+    return out
+
+
+def replaceable_codes() -> dict[str, str]:
+    """
+    Units a Temporary Replacement may take over, each with a short note on why:
+    a regular route whose collector is unavailable -- a pending or approved
+    request that is running or still to come -- and that no replacement is
+    covering yet. The stand-in drives the absent collector's vehicle, so these
+    are the only taken units worth offering for one.
+    """
+    from services import assignment_service
+
+    out = {}
+    for collection, code_field, who_field in (
+            (assignment_service.TRICYCLE_COLLECTION, "tricycle_code", "collector_id"),
+            (assignment_service.TRUCK_COLLECTION, "truck_code", "operator_id")):
+        rows = storage.read(collection)
+        covered = {r.get(code_field) for r in rows
+                   if r.get("status") == assignment_service.REPLACEMENT
+                   and assignment_service.is_active(r)}
+        for row in rows:
+            code = row.get(code_field)
+            if (row.get("status") != "Active" or not assignment_service.is_active(row)
+                    or not code or code in covered):
+                continue
+            window = assignment_service.absence_window(row.get(who_field))
+            if not window:
+                continue
+            start, end = (timeutil.display_date(d) for d in window)
+            out[code] = (f"unavailable {start}" if start == end
+                         else f"unavailable {start} to {end}")
     return out
 
 
